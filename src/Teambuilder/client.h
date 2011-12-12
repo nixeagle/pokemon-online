@@ -9,6 +9,9 @@
 #include "../Utilities/otherwidgets.h"
 #include "tierstruct.h"
 #include "password_wallet.h"
+#ifdef PO_PMS_YOU_START_ONLY
+#include <ctime>
+#endif
 
 class MainEngine;
 class BaseChallengeWindow;
@@ -107,6 +110,7 @@ public:
     bool sortBT;
     bool sortBA;
     bool showTS;
+    bool pmFlashing;
     TierNode tierRoot;
     QStringList tierList;
 public slots:
@@ -220,6 +224,7 @@ public slots:
     void toggleAutoJoin(bool);
     void showTimeStamps(bool);
     void showTimeStamps2(bool);
+    void pmFlash(bool);
     void movePlayerList(bool);
     void ignoreServerVersion(bool);
     void versionDiff(const QString &a, const QString &b);
@@ -259,8 +264,9 @@ private:
     /* GUI */
     /* Main chat */
     QScrollDownTextBrowser *mychat;
-    /* PMs */
+    /* PMs and disabled PMs */
     QHash<int, PMWindow*> mypms;
+    QHash<QString, PMWindow*> disabledpms;
     /* Line the user types in */
 //    QLineEdit *myline;
     QIRCLineEdit *myline;
@@ -340,6 +346,9 @@ private:
     void changeTierChecked(const QString &newtier);
 
     bool eventEnabled(int event);
+#ifdef PO_PMS_YOU_START_ONLY
+    time_t lastAutoPM;
+#endif
 };
 
 class BattleFinder : public QWidget

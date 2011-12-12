@@ -112,10 +112,11 @@ void BaseBattleWindow::init()
     mylayout->addWidget(mydisplay, 0, 0, 1, 3);
     mylayout->addWidget(saveLogs = new QCheckBox(tr("Save log")), 1, 0, 1, 2);
     mylayout->addWidget(musicOn = new QCheckBox(tr("Music")), 1, 1, 1, 2);
-    mylayout->addWidget(myclose = new QPushButton(tr("&Close")),1,2);
+    mylayout->addWidget(flashWhenMoveDone = new QCheckBox(tr("Flash when a move is done")), 1, 2, 1, 2);
 
     QSettings s;
     musicOn->setChecked(s.value("play_battle_music").toBool());
+    flashWhenMoveDone->setChecked(s.value("flash_when_enemy_moves").toBool());
 
     QVBoxLayout *chat = new QVBoxLayout();
     columns->addLayout(chat);
@@ -126,6 +127,7 @@ void BaseBattleWindow::init()
     chat->addLayout(buttons);
 
     buttons->addWidget(mysend = new QPushButton(tr("C&hat")));
+    buttons->addWidget(myclose = new QPushButton(tr("&Close")));
     buttons->addWidget(myignore = new QPushButton(tr("&Ignore spectators")));
 
     connect(musicOn, SIGNAL(toggled(bool)), SLOT(musicPlayStop()));
@@ -135,13 +137,15 @@ void BaseBattleWindow::init()
     connect(mysend, SIGNAL(clicked()), SLOT(sendMessage()));
 
     loadSettings(this);
-
     test = new SpectatorWindow(conf(), info().name(0), info().name(1));
 
     QWidget *widget =test->getSampleWidget();
     widget->setParent(this);
     widget->setWindowFlags(Qt::Window);
-    widget->show();
+    // Following line shows another battle window, but this one with
+    // pretty graphics and such. Currently disabled until post 1.0.32
+    // release. ~nix
+    /* widget->show(); */
     testWidget = widget;
 
     connect(this, SIGNAL(destroyed()), widget, SLOT(deleteLater()));
@@ -168,6 +172,11 @@ void BaseBattleWindow::init()
 bool BaseBattleWindow::musicPlayed() const
 {
     return musicOn->isChecked();
+}
+
+bool BaseBattleWindow::flashWhenMoved() const
+{
+    return flashWhenMoveDone->isChecked();
 }
 
 void BaseBattleWindow::musicPlayStop()
@@ -427,7 +436,9 @@ void BaseBattleWindow::dealWithCommandInfo(QDataStream &in, int command, int spo
         {
             playCry(info().currentShallow(spot).num().pokenum);
         }
-
+        if(!this->window()->isActiveWindow() && flashWhenMoved()) {
+            qApp->alert(this, 0);
+        }
 
         QString pokename = PokemonInfo::Name(info().currentShallow(spot).num());
         if (pokename != rnick(spot))
@@ -452,6 +463,9 @@ void BaseBattleWindow::dealWithCommandInfo(QDataStream &in, int command, int spo
         if (silent) {
             break;
         }
+        if(!this->window()->isActiveWindow() && flashWhenMoved()) {
+            qApp->alert(this, 0);
+        }
         printLine(tr("%1 called %2 back!").arg(name(player(spot)), rnick(spot)));
         switchToNaught(spot);
         break;
@@ -459,7 +473,9 @@ void BaseBattleWindow::dealWithCommandInfo(QDataStream &in, int command, int spo
     {
         qint16 attack;
         in >> attack;
-
+        if(!this->window()->isActiveWindow() && flashWhenMoved()) {
+            qApp->alert(this, 0);
+        }
         printHtml(tr("%1 used %2!").arg(escapeHtml(tu(nick(spot))), toBoldColor(MoveInfo::Name(attack), Theme::TypeColor(MoveInfo::Type(attack, gen())))));
         break;
     }
@@ -489,7 +505,6 @@ void BaseBattleWindow::dealWithCommandInfo(QDataStream &in, int command, int spo
         {
             playCry(info().currentShallow(spot).num().pokenum);
         }
-
         printHtml("<b>" + escapeHtml(tu(tr("%1 fainted!").arg(nick(spot)))) + "</b>");
         switchToNaught(spot);
         break;
@@ -766,8 +781,8 @@ void BaseBattleWindow::dealWithCommandInfo(QDataStream &in, int command, int spo
         QString mess = AbilityInfo::Message(ab,part);
         mess.replace("%st", StatInfo::Stat(other));
         mess.replace("%s", nick(spot));
-        //            mess.replace("%ts", name(spot));
-        //            mess.replace("%tf", name(!spot));
+        mess.replace("%ts", name(player(spot)));
+        mess.replace("%tf", name(opponent(player(spot))));
         mess.replace("%t", TypeInfo::Name(type));
         mess.replace("%f", nick(foe));
         mess.replace("%m", MoveInfo::Name(other));

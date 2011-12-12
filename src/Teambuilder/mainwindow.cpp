@@ -30,6 +30,7 @@ MainEngine::MainEngine() : displayer(0)
     setDefaultValue(s, "battle_music_directory", "Music/Battle/");
     setDefaultValue(s, "play_battle_music", false);
     setDefaultValue(s, "play_battle_sounds", false);
+    setDefaultValue(s, "flash_when_enemy_moves", true);
     setDefaultValue(s, "show_team", true);
     setDefaultValue(s, "enable_ladder", true);
     setDefaultValue(s, "show_player_events_idle", false);
@@ -38,6 +39,7 @@ MainEngine::MainEngine() : displayer(0)
     setDefaultValue(s, "show_player_events_team", false);
     setDefaultValue(s, "show_timestamps", true);
     setDefaultValue(s, "show_timestamps2", true);
+    setDefaultValue(s, "pm_flashing", true);
     setDefaultValue(s, "animate_hp_bar", true);
     setDefaultValue(s, "sort_players_by_tier", false);
     setDefaultValue(s, "show_all_items", false);

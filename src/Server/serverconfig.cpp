@@ -57,11 +57,20 @@ ServerWindow::ServerWindow(QWidget *parent) : QWidget(parent)
     l->addRow("File Logging for Channels: ", channelFileLog = new QCheckBox("Save channel messages to daily rotating log files"));
     channelFileLog->setChecked(settings.value("logs_channel_files").toBool());
 
+    l->addRow("File Logging for Battle: ", battleFileLog = new QCheckBox("Save battle logs to files"));
+    battleFileLog->setChecked(settings.value("logs_battle_files").toBool());
+
     l->addRow("Low Latency: ", lowLatency = new QCheckBox("Sacrifices bandwith for latency (look up Nagle's algorithm)"));
     lowLatency->setChecked(settings.value("low_TCP_delay").toBool());
     
     l->addRow("Safe scripts: ", safeScripts = new QCheckBox("Restricts some script functions to improve security."));
     safeScripts->setChecked(settings.value("safe_scripts").toBool());
+    
+    l->addRow("Minimize to tray: ", minimizeToTray = new QCheckBox("Hide to tray when minimized/switch desktop."));
+    minimizeToTray->setChecked(settings.value("minimize_to_tray").toBool());
+
+    l->addRow("Show tray popup: ", trayPopup = new QCheckBox("Show tooltip when PO is minimized to tray."));
+    trayPopup->setChecked(settings.value("show_tray_popup").toBool());
 
     l->addRow("Proxy Servers: ", proxyServers = new QLineEdit(settings.value("proxyservers").toString()));
 
@@ -95,9 +104,12 @@ void ServerWindow::apply()
     settings.setValue("server_announcement", serverAnnouncement->toPlainText());
     settings.setValue("show_log_messages", saveLogs->isChecked());
     settings.setValue("logs_channel_files", channelFileLog->isChecked());
+    settings.setValue("logs_battle_files", channelFileLog->isChecked());
     settings.setValue("mainchanname", mainChan->text());
     settings.setValue("low_TCP_delay", lowLatency->isChecked());
     settings.setValue("safe_scripts", safeScripts->isChecked());
+    settings.setValue("minimize_to_tray", minimizeToTray->isChecked());
+    settings.setValue("show_tray_popup", trayPopup->isChecked());
     settings.setValue("proxyservers", proxyServers->text());
     settings.setValue("server_password", serverPassword->text());
     settings.setValue("require_password", usePassword->isChecked());
@@ -109,6 +121,7 @@ void ServerWindow::apply()
     emit privacyChanged(serverPrivate->currentIndex());
     emit logSavingChanged(saveLogs->isChecked());
     emit useChannelFileLogChanged(channelFileLog->isChecked());
+    emit useBattleFileLogChanged(battleFileLog->isChecked());
     if (mainChan->text().length() > 0)
         emit mainChanChanged(mainChan->text());
     emit latencyChanged(lowLatency->isChecked());
@@ -116,6 +129,8 @@ void ServerWindow::apply()
     emit proxyServersChanged(proxyServers->text());
     emit serverPasswordChanged(serverPassword->text());
     emit usePasswordChanged(usePassword->isChecked());
+    emit minimizeToTrayChanged(minimizeToTray->isChecked());
+    emit showTrayPopupChanged(trayPopup->isChecked());
 
     close();
 }

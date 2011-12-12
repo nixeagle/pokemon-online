@@ -110,6 +110,12 @@ void Server::start(){
     if (!s.contains("require_password")) {
         s.setValue("require_password", false);
     }
+    if (!s.contains("show_tray_popup")) {
+        s.setValue("show_tray_popup", true);
+    }
+    if (!s.contains("minimize_to_tray")) {
+        s.setValue("minimize_to_tray", true);
+    }
 
     try {
         SQLCreator::createSQLConnection();
@@ -203,6 +209,7 @@ void Server::start(){
         s.setValue("logs_battle_files", false);
     }
     useChannelFileLog = s.value("logs_channel_files").toBool();
+    useBattleFileLog = s.value("logs_battle_files").toBool();
 
     /*
       The timer for clearing the last rated battles memory, set to 3 hours
@@ -221,6 +228,8 @@ void Server::start(){
     proxyServers = s.value("proxyservers").toString().split(",");
     passwordProtected = s.value("require_password").toBool();
     serverPassword = s.value("server_password").toString();
+    showTrayPopup = s.value("show_tray_popup").toBool();
+    minimizeToTray = s.value("minimize_to_tray").toBool();
 
     /* Adds the main channel */
     addChannel();
@@ -1167,6 +1176,14 @@ void Server::afterChangeTier(int src, const QString &old, const QString &dest)
     myengine->afterChangeTier(src, old, dest);
 }
 
+bool Server::beforeFindBattle(int src) {
+    return myengine->beforeFindBattle(src);
+}
+
+void Server::afterFindBattle(int src) {
+    myengine->afterFindBattle(src);
+}
+
 bool Server::beforePlayerAway(int src, bool away)
 {
     return myengine->beforePlayerAway(src, away);
@@ -1191,6 +1208,14 @@ void Server::useChannelFileLogChanged(bool logging)
         return;
     useChannelFileLog = logging;
     printLine("Channel File Logging changed", false, true);
+}
+
+void Server::useBattleFileLogChanged(bool logging)
+{
+    if (useBattleFileLog == logging)
+        return;
+    useBattleFileLog = logging;
+    printLine("Battle File Logging changed", false, true);
 }
 
 void Server::TCPDelayChanged(bool lowTCP)
@@ -1351,6 +1376,7 @@ void Server::startBattle(int id1, int id2, const ChallengeInfo &c)
     connect(battle, SIGNAL(battleInfo(int,int,QByteArray)), SLOT(sendBattleCommand(int,int,QByteArray)));
     connect(battle, SIGNAL(battleFinished(int,int,int,int)), SLOT(battleResult(int, int,int,int)));
 
+    battle->setLogging(useBattleFileLog);
     battle->start(battleThread);
 
     myengine->afterBattleStarted(id1,id2,c,id);
@@ -1786,4 +1812,14 @@ bool Server::isLegalProxyServer(const QString &ip) const
             return true;
     }
     return false;
+}
+
+void Server::showTrayPopupChanged(bool show)
+{
+    showTrayPopup = show;
+}
+
+void Server::minimizeToTrayChanged(bool allow)
+{
+    minimizeToTray = allow;
 }

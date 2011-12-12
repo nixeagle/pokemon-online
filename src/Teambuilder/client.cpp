@@ -20,6 +20,9 @@ Client::Client(TrainerTeam *t, const QString &url , const quint16 port) : myteam
     selectedChannel = -1;
     setAttribute(Qt::WA_DeleteOnClose, true);
     myteambuilder = NULL;
+#ifdef PO_PMS_YOU_START_ONLY
+    lastAutoPM = time(NULL);
+#endif
 
     /* different events */
     eventlist << "show_player_events_idle" << "show_player_events_battle" << "show_player_events_channel" << "show_player_events_team";
@@ -643,6 +646,9 @@ void Client::startPM(int id)
         return;
     }
 
+    if(pmFlashing)
+        activateWindow(); // activate po window when pm recieved
+
     if (mypms.contains(id)) {
         return;
     }
@@ -690,6 +696,12 @@ void Client::showTimeStamps2(bool b)
 {
     QSettings s;
     s.setValue("show_timestamps2", b);
+}
+void Client::pmFlash(bool b)
+{
+    QSettings s;
+    s.setValue("pm_flashing", b);
+    pmFlashing = b;
 }
 
 void Client::ignoreServerVersion(bool b)
@@ -937,7 +949,12 @@ void Client::PMReceived(int id, QString pm)
         registerPermPlayer(id);
         mypms[id]->printLine(pm);
     } else {
-        myrelay.sendPM(id, "This player cannot receive PMs."); // no translation needed
+        time_t current = time(NULL);
+        double difference = difftime(lastAutoPM, current);
+        if ((difference > 6) || (difference < -6)) {
+            myrelay.sendPM(id, "This player cannot receive PMs."); // no translation needed
+            lastAutoPM = current;
+        }
         return;
     }
 #else
@@ -1013,7 +1030,7 @@ QMenuBar * Client::createMenuBar(MainEngine *w)
 
     QMenu *menuFichier = menuBar->addMenu(tr("&File"));
     menuFichier->addAction(tr("&Load team"),this,SLOT(loadTeam()),Qt::CTRL+Qt::Key_L);
-    menuFichier->addAction(tr("Open &teamBuilder"),this,SLOT(openTeamBuilder()),Qt::CTRL+Qt::Key_T);
+    menuFichier->addAction(tr("Open &TeamBuilder"),this,SLOT(openTeamBuilder()),Qt::CTRL+Qt::Key_T);
 
     w->addStyleMenu(menuBar);
     w->addThemeMenu(menuBar);
@@ -1102,6 +1119,11 @@ QMenuBar * Client::createMenuBar(MainEngine *w)
     show_ts2->setCheckable(true);
     connect(show_ts2, SIGNAL(triggered(bool)), SLOT(showTimeStamps2(bool)));
     show_ts2->setChecked(s.value("show_timestamps2").toBool());
+
+    QAction * pm_flash = menuActions->addAction(tr("Make new PMs &flash"));
+    pm_flash->setCheckable(true);
+    connect(pm_flash, SIGNAL(triggered(bool)), SLOT(pmFlash(bool)));
+    pm_flash->setChecked(s.value("pm_flashing").toBool());
 
     QAction *sortByTier = menuActions->addAction(tr("Sort players by &tiers"));
     sortByTier->setCheckable(true);
@@ -1876,9 +1898,11 @@ void Client::removePlayer(int id)
     pmedPlayers.remove(id);
     fade.remove(id);
 
-    if (mypms.contains(id)) {
-        mypms[id]->disable();
-        mypms.remove(id);
+    QHash<int, PMWindow*>::iterator pm = mypms.find(id);
+    if (pm != mypms.end()) {
+        pm.value()->disable();
+        disabledpms[name] = pm.value();
+        mypms.erase(pm);
     }
 
     /* Name removed... Only if no one took it since the 10 minutes we never saw the guy */
@@ -1958,6 +1982,14 @@ void Client::playerReceived(const PlayerInfo &p)
             c->playerReceived(p.id);
         else
             c->changeName(p.id, p.team.name); /* Even if the player isn't in the channel, someone in the channel could be battling him, ... */
+    }
+    
+    QHash<QString, PMWindow*>::iterator pm = disabledpms.find(name(p.id));
+    if (pm != disabledpms.end()) {
+        PMWindow *window = pm.value();
+        disabledpms.erase(pm);
+        mypms[p.id] = window;
+        window->reuse(p.id);
     }
 }
 

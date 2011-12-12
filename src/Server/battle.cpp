@@ -11,10 +11,13 @@
 #include "tier.h"
 #include "pluginmanager.h"
 #include "battlepluginstruct.h"
+#include "theme.h"
 #include "battlefunctions.h"
 #include "battlecounterindex.h"
 
 typedef BattlePStorage BP;
+
+Q_DECLARE_METATYPE(QList<int>)
 
 BattleSituation::BattleSituation(Player &p1, Player &p2, const ChallengeInfo &c, int id, PluginManager *pluginManager)
     : /*spectatorMutex(QMutex::Recursive), */team1(p1.team()), team2(p2.team())
@@ -180,13 +183,53 @@ BattleSituation::~BattleSituation()
     qDebug() << "Deleted battle situation";
 }
 
+QString BattleSituation::getBattleLogFilename() const
+{
+    QFileInfo info(battleLog);
+    return info.absoluteFilePath();
+}
+
 void BattleSituation::start(ContextSwitcher &ctx)
 {
+    QString date = QDate::currentDate().toString("yyyy-MM-dd");
+    QString time = QTime::currentTime().toString("hh'h'mm'm'ss's'");
+    QString id0 = QString::number(myid[0]);
+    QString id1 = QString::number(myid[1]);
+    QDir d("");
+
+    if(useBattleLog) {
+        if(!d.exists("logs/battles/" + date)) {
+            d.mkpath("logs/battles/" + date);
+        }
+        battleLog.setFileName(QString("logs/battles/%1/%2-%3-%4.html").arg(date, time, id0, id1));
+        battleLog.open(QIODevice::WriteOnly);
+
+         appendBattleLog("BattleStart", toBoldColor(tr("Battle between %1 and %2 started!"), Qt::blue).arg(team1.name, team2.name));
+	appendBattleLog("BlankMessage", "");
+
+	appendBattleLog("Teams",toBoldColor(tr("%1's team:"), Qt::blue).arg(team1.name) + PokemonInfo::Name(team1.poke(0).num()) + " / " + PokemonInfo::Name(team1.poke(1).num()) + " / " + PokemonInfo::Name(team1.poke(2).num()) + " / " + PokemonInfo::Name(team1.poke(3).num()) + " / " + PokemonInfo::Name(team1.poke(4).num()) + " / " + PokemonInfo::Name(team1.poke(5).num()));
+	appendBattleLog("Teams",toBoldColor(tr("%1's team:"), Qt::blue).arg(team2.name) + PokemonInfo::Name(team2.poke(0).num()) + " / " + PokemonInfo::Name(team2.poke(1).num()) + " / " + PokemonInfo::Name(team2.poke(2).num()) + " / " + PokemonInfo::Name(team2.poke(3).num()) + " / " + PokemonInfo::Name(team2.poke(4).num()) + " / " + PokemonInfo::Name(team2.poke(5).num()));
+
+	appendBattleLog("BlankMessage", "");
+    }
+    
+    if(recordUsage) {
+        if(!d.exists(QString("usage/%1/%2/").arg(tier(),date))) {
+            d.mkpath(QString("usage/%1/%2/").arg(tier(),date));
+        }
+        usageLog.setFileName(QString("usage/%5/%1/%2-%3-%4").arg(date, time, id0, id1, tier()));
+        usageLog.open(QIODevice::WriteOnly);
+        writeUsageLog();
+    }
+
     notify(All, BlankMessage,0);
 
     if (tier().length()>0)
     {
         notify(All, TierSection, Player1, tier());
+
+        if (useBattleLog)
+            appendBattleLog("TierSection", toBoldColor(tr("Tier: "), Qt::blue) + tier());
     }
 
     if (rated()) {
@@ -195,9 +238,27 @@ void BattleSituation::start(ContextSwitcher &ctx)
 
         notify(Player1, PointEstimate, Player1, qint8(firstChange.first), qint8(firstChange.second));
         notify(Player2, PointEstimate, Player2, qint8(secondChange.first), qint8(secondChange.second));
+
+        if (useBattleLog) {
+            appendBattleLog("PointEstimate", toBoldColor(tr("Variation: "), Qt::blue) + QString("+%1, %2").arg(int(firstChange.first)).arg(int(firstChange.second)));
+            appendBattleLog("PointEstimate", toBoldColor(tr("Variation: "), Qt::blue) + QString("+%1, %2").arg(int(secondChange.first)).arg(int(secondChange.second)));
+        }
     }
 
     notify(All, Rated, Player1, rated());
+
+    if (useBattleLog) {
+        appendBattleLog("Rated", toBoldColor(tr("Rule: "), Qt::blue) + (rated()? tr("Rated") : tr("Unrated")));
+
+        for (int i = 0; i < ChallengeInfo::numberOfClauses; i++) {
+            if (clauses() & (1 << i)) {
+                appendBattleLog("Clause", toBoldColor(tr("Rule: "), Qt::blue) + ChallengeInfo::clause(i));
+            }
+        }
+
+        appendBattleLog("BlankMessage", "");
+    }
+
     notify(All, BlankMessage,0);
 
     /* Beginning of the battle! */
@@ -292,6 +353,9 @@ bool BattleSituation::acceptSpectator(int id, bool authed) const
 void BattleSituation::notifyClause(int clause)
 {
     notify(All, Clause, intlog2(clause));
+
+    if (useBattleLog)
+        appendBattleLog("Clause", ChallengeInfo::battleText(intlog2(clause)));
 }
 
 void BattleSituation::addSpectator(Player *p)
@@ -328,6 +392,11 @@ void BattleSituation::addSpectator(Player *p)
     notify(All, Spectating, 0, true, qint32(id), p->name());
     notify(key, BlankMessage, 0);
 
+    if (useBattleLog) {
+        appendBattleLog("Spectating", toBoldColor(tr("%1 is watching the battle.").arg(name(id)), Qt::green));
+        appendBattleLog("BlankMessage", "");
+    }
+
     for (int i = 0; i < 2; i++) {
         for (int j = 0; j < 6; j++) {
             notify(key, AbsStatusChange, i, qint8(j), qint8(poke(i, j).status()));
@@ -355,6 +424,9 @@ void BattleSituation::removeSpectator(int id)
     spectatorMutex.unlock();
 
     notify(All, Spectating, 0, false, qint32(id));
+
+    if (useBattleLog)
+        appendBattleLog("Spectating", toBoldColor(tr("%1 stopped watching the battle.").arg(name(id)), Qt::green));
 }
 
 int BattleSituation::id(int spot) const
@@ -604,20 +676,20 @@ void BattleSituation::initializeEndTurnFunctions()
     6.0 Ingrain
     6.1 Aqua Ring
     6.2 Speed Boost, Shed Skin
-    6.3 Black Sludge, Leftovers: "pokemon restored a little HP using its leftovers"
-    6.4 Leech Seed: "pokemon's health is sapped by leech seed"
-    6.5 Burn, Poison Heal, Poison: "pokemon is hurt by poison"
+    6.3 Black Sludge, Leftovers: "pokémon restored a little HP using its leftovers"
+    6.4 Leech Seed: "pokémon's health is sapped by leech seed"
+    6.5 Burn, Poison Heal, Poison: "pokémon is hurt by poison"
     6.6 Nightmare
     6.7 Flame Orb activation, Toxic Orb activation
     6.8 Curse (from a Ghost)
     6.9 Bind, Clamp, Fire Spin, Magma Storm, Sand Tomb, Whirlpool, Wrap
     6.10 Bad Dreams Damage
-    6.11 End of Outrage, Petal Dance, Thrash, Uproar: "pokemon caused an uproar" & "pokemon calmed down"
-    6.12 Disable ends: "pokemon is no longer disabled"
+    6.11 End of Outrage, Petal Dance, Thrash, Uproar: "pokémon caused an uproar" & "pokémon calmed down"
+    6.12 Disable ends: "pokémon is no longer disabled"
     6.13 Encore ends
     6.14 Taunt wears off
     6.15 Magnet Rise
-    6.16 Heal Block: "the foe pokemon's heal block wore off"
+    6.16 Heal Block: "the foe pokémon's heal block wore off"
     6.17 Embargo
     6.18 Yawn
     6.19 Sticky Barb
@@ -718,7 +790,7 @@ void BattleSituation::initializeEndTurnFunctions()
 
         27.0 Zen Mode
 
-        28.0 pokemon is switched in (if previous Pokemon fainted)
+        28.0 Pokémon is switched in (if previous Pokémon fainted)
         28.1 Healing Wish, Lunar Dance
         28.2 Spikes, Toxic Spikes, Stealth Rock (hurt in the order they are first used)
 
@@ -988,6 +1060,11 @@ void BattleSituation::endTurn()
 
 void BattleSituation::endTurnDefrost()
 {
+    // RBY freeze is forever unless hit by fire moves.
+    // We think both stadium and cart have permafreeze.
+    if (gen() == 1) {
+      return;
+    }
     foreach(int player, speedsVector) {
         if (poke(player).status() == Pokemon::Frozen)
         {
@@ -1047,6 +1124,9 @@ void BattleSituation::personalEndTurn(int player)
 void BattleSituation::notifyFail(int p)
 {
     notify(All, Failed, p);
+
+    if (useBattleLog)
+        appendBattleLog("Failed", tr("But it failed!"));
 }
 
 void BattleSituation::endTurnStatus(int player)
@@ -1061,6 +1141,9 @@ void BattleSituation::endTurnStatus(int player)
             return;
 
         notify(All, StatusMessage, player, qint8(HurtBurn));
+
+        if (useBattleLog)
+            appendBattleLog("StatusMessage", toColor(escapeHtml(tu(tr("%1 is hurt by its burn!").arg(nick(player)))), Theme::StatusColor(Pokemon::Burnt)));
         //HeatProof: burn does only 1/16
         inflictDamage(player, poke(player).totalLifePoints()/(8*(1+hasWorkingAbility(player,Ability::Heatproof))), player);
         break;
@@ -1078,6 +1161,8 @@ void BattleSituation::endTurnStatus(int player)
             }
             notify(All, StatusMessage, player, qint8(HurtPoison));
 
+            if (useBattleLog)
+                appendBattleLog("StatusMessage", toColor(escapeHtml(tu(tr("%1 is hurt by poison!").arg(nick(player)))), Theme::StatusColor(Pokemon::Poisoned)));
             if (poke(player).statusCount() == 0)
                 inflictDamage(player, poke(player).totalLifePoints()/8, player);
             else {
@@ -1150,6 +1235,11 @@ void BattleSituation::requestChoices()
     }
 
     notify(All, BeginTurn, All, turn());
+
+    if (useBattleLog) {
+        appendBattleLog("Space","");
+        appendBattleLog("BeginTurn", toBoldColor(tr("Start of turn %1").arg(turn()), Qt::blue));
+    }
 
     /* Now all the players gonna do is analyzeChoice(int player) */
 }
@@ -1279,6 +1369,10 @@ void BattleSituation::analyzeChoice(int slot)
 
     if (gen() >= 3) {
         notify(All, BlankMessage, Player1);
+
+
+        if (useBattleLog)
+            appendBattleLog("BlankMessage", "");
     } else {
 
     }
@@ -1294,6 +1388,14 @@ void BattleSituation::shiftSpots(int spot1, int spot2, bool silent)
     int p = player(spot1);
 
     notify(All, SpotShifting, p, qint8(sl1), qint8(sl2), silent);
+
+    if (useBattleLog) {
+        if (poke(p, sl2).status() == Pokemon::Koed) {
+            appendBattleLog("SpotShifting", tr("%1 shifted spots to the middle!").arg(tu(nick(spot1))));
+        } else {
+            appendBattleLog("SpotShifting", tr("%1 shifted spots with %2!").arg(tu(nick(spot1)), nick(spot2)));
+        }
+    }
 
     for (unsigned i = 0; i < speedsVector.size(); i++) {
         if (speedsVector[i] == spot1) {
@@ -1401,6 +1503,10 @@ void BattleSituation::analyzeChoices()
         if (gen() <= 2) {
             personalEndTurn(player);
             notify(All, BlankMessage, Player1);
+
+            if (useBattleLog)
+                appendBattleLog("BlankMessage", "");
+
         }
     }
 
@@ -1456,6 +1562,9 @@ void BattleSituation::analyzeChoices()
                 if (gen() <= 2) {
                     personalEndTurn(players[i]);
                     notify(All, BlankMessage, Player1);
+
+                    if (useBattleLog)
+                        appendBattleLog("BlankMessage", "");
                 }
             }
             testWin();
@@ -1796,6 +1905,9 @@ void BattleSituation::battleChat(int id, const QString &str)
 void BattleSituation::spectatingChat(int id, const QString &str)
 {
     notify(All, SpectatorChat, id, qint32(id), str);
+
+    if (useBattleLog)
+        appendBattleLog("SpectatorChat", toColor(name(id), Qt::blue) + ": " + escapeHtml(str));
 }
 
 QString BattleSituation::name(int id)
@@ -1845,6 +1957,13 @@ void BattleSituation::sendPoke(int slot, int pok, bool silent)
 
     QString pokename = PokemonInfo::Name(poke(player,pok).num());
     QString nickname = poke(player,pok).nick();
+
+    if (useBattleLog) {
+        if (pokename != nickname)
+            appendBattleLog("SendOut", tr("%1 sent out %2! (%3)").arg(name(player), nickname, pokename));
+        else
+            appendBattleLog("SendOut", tr("%1 sent out %2!").arg(name(player), nickname));
+    }
 
     notify(All, SendOut, slot, silent, quint8(pok), opoke(slot, player, pok));
 
@@ -1897,6 +2016,13 @@ void BattleSituation::sendPoke(int slot, int pok, bool silent)
         if (type != Type::Normal) {
             changeAForme(slot, type);
         }
+    }
+    if (p.num() == Pokemon::Genesect && ItemInfo::isDrive(p.item())) {
+       int forme = ItemInfo::DriveForme(p.item());
+
+       if (forme != 0) {
+           changeAForme(slot, forme);
+       }
     }
 
     turnMemory(slot)["CantGetToMove"] = true;
@@ -2047,6 +2173,9 @@ void BattleSituation::sendBack(int player, bool silent)
         }
     }
 
+    if (useBattleLog)
+        appendBattleLog("SendBack", tr("%1 called %2 back!").arg(name(player), poke(player).nick()));
+
     notify(All, SendBack, player, silent);
 
     if (!koed(player)) {
@@ -2067,8 +2196,7 @@ bool BattleSituation::testAccuracy(int player, int target, bool silent)
     bool multiTar = tarChoice != Move::ChosenTarget && tarChoice != Move::RandomTarget;
 
     turnMemory(target).remove("EvadeAttack");
-    callpeffects(target, player, "TestEvasion"); /*dig bounce ..., still calling it there cuz x2 attacks
-            like EQ on dig need their boost even if lock on */
+    callpeffects(target, player, "TestEvasion"); /*dig bounce  ... */
 
     if (pokeMemory(player).contains("LockedOn") && pokeMemory(player).value("LockedOnEnd").toInt() >= turn()
             && pokeMemory(player).value("LockedOn") == target &&
@@ -2097,7 +2225,9 @@ bool BattleSituation::testAccuracy(int player, int target, bool silent)
         return false;
     }
 
-    if (acc == 0 || acc == 101 || pokeMemory(target).value("LevitatedCount").toInt() > 0) {
+    if (acc == 0 || acc == 101 ||
+        (pokeMemory(target).value("LevitatedCount").toInt() > 0 &&
+         !MoveInfo::isOHKO(move, gen()))) {
         return true;
     }
 
@@ -2147,8 +2277,12 @@ void BattleSituation::notifyMiss(bool multiTar, int player, int target)
 {
     if (multiTar) {
         notify(All, Avoid, target);
+        if (useBattleLog)
+            appendBattleLog("Avoid", tr("%1 avoided the attack!").arg(tu(nick(target))));
     } else {
         notify(All, Miss, player);
+        if (useBattleLog)
+            appendBattleLog("Miss", tr("The attack of %1 missed!").arg(nick(player)));
     }
 }
 
@@ -2191,6 +2325,8 @@ void BattleSituation::testCritical(int player, int target)
 
     if (critical) {
         notify(All, CriticalHit, player);
+       if (useBattleLog)
+            appendBattleLog("CriticalHit", toColor(tr("A critical hit!"), "#6b0000"));
     }
 
     /* In GSC, if crit and if you don't got superior boosts in offensive than in their defensive stat, you ignore boosts, burn, and screens,
@@ -2215,12 +2351,15 @@ bool BattleSituation::testStatus(int player)
             //Early bird
             poke(player).statusCount() -= 1 + hasWorkingAbility(player, Ability::EarlyBird);
             notify(All, StatusMessage, player, qint8(FeelAsleep));
-
+           if (useBattleLog)
+                appendBattleLog("StatusMessage", toColor(escapeHtml(tu(tr("%1 is fast asleep!").arg(nick(player)))), Theme::StatusColor(Pokemon::Asleep)));
             if (!turnMemory(player).value("SleepingMove").toBool())
                 return false;
         } else {
             healStatus(player, Pokemon::Asleep);
             notify(All, StatusMessage, player, qint8(FreeAsleep));
+            if (useBattleLog)
+                appendBattleLog("StatusMessage", toColor(escapeHtml(tu(tr("%1 woke up!").arg(nick(player)))), Theme::TypeColor(Type::Dark).name()));
 
             /* In gen 1, pokemon take a full turn to wake up */
             if (gen() == 1)
@@ -2232,7 +2371,8 @@ bool BattleSituation::testStatus(int player)
         if (gen() <=2 || (!coinflip(1, 5) && !(tmove(player).flags & Move::UnthawingFlag)) )
         {
             notify(All, StatusMessage, player, qint8(PrevFrozen));
-
+            if (useBattleLog)
+                appendBattleLog("StatusMessage", toColor(escapeHtml(tu(tr("%1 is frozen solid!").arg(nick(player)))), Theme::StatusColor(Pokemon::Frozen)));
             return false;
         }
         unthaw(player);
@@ -2240,6 +2380,8 @@ bool BattleSituation::testStatus(int player)
 
     if (turnMemory(player)["Flinched"].toBool()) {
         notify(All, Flinch, player);
+        if (useBattleLog)
+            appendBattleLog("Flinch", tu(tr("%1 flinched!").arg(nick(player))));
 
         //SteadFast
         if (hasWorkingAbility(player, Ability::Steadfast)) {
@@ -2254,6 +2396,9 @@ bool BattleSituation::testStatus(int player)
 
             notify(All, StatusMessage, player, qint8(FeelConfusion));
 
+            if (useBattleLog)
+                appendBattleLog("StatusMessage", toColor(escapeHtml(tu(tr("%1 is confused!").arg(nick(player)))), Theme::TypeColor(Type::Ghost).name()));
+
             if (coinflip(1, 2)) {
                 inflictConfusedDamage(player);
                 return false;
@@ -2261,6 +2406,9 @@ bool BattleSituation::testStatus(int player)
         } else {
             healConfused(player);
             notify(All, StatusMessage, player, qint8(FreeConfusion));
+
+            if (useBattleLog)
+                appendBattleLog("StatusMessage", toColor(escapeHtml(tu(tr("%1 snapped out its confusion!").arg(nick(player)))), Theme::TypeColor(Type::Dark).name()));
         }
     }
 
@@ -2268,6 +2416,8 @@ bool BattleSituation::testStatus(int player)
         //MagicGuard
         if ( (gen() > 4 || !hasWorkingAbility(player, Ability::MagicGuard)) && coinflip(1, 4)) {
             notify(All, StatusMessage, player, qint8(PrevParalysed));
+            if (useBattleLog)
+                appendBattleLog("StatusMessage", toColor(escapeHtml(tu(tr("%1 is paralyzed! It can't move!").arg(nick(player)))), Theme::StatusColor(Pokemon::Paralysed)));
             return false;
         }
     }
@@ -2278,6 +2428,8 @@ bool BattleSituation::testStatus(int player)
 void BattleSituation::inflictConfusedDamage(int player)
 {
     notify(All, StatusMessage, player, qint8(HurtConfusion));
+    if (useBattleLog)
+        appendBattleLog("StatusMessage", toColor(escapeHtml(tu(tr("It hurt itself in its confusion!"))), Theme::TypeColor(Type::Ghost).name()));
 
     tmove(player).type = Pokemon::Curse;
     tmove(player).power = 40;
@@ -2299,7 +2451,7 @@ void BattleSituation::testFlinch(int player, int target)
     int rate = tmove(player).flinchRate;
 
     if (hasWorkingAbility(target, Ability::InnerFocus)) {
-        if (rate == 100) {
+        if (rate == 100 && gen() <= 4) {
             sendAbMessage(12,0,target);
         }
         return;
@@ -2315,7 +2467,9 @@ void BattleSituation::testFlinch(int player, int target)
     }
 
     if (tmove(player).kingRock && (hasWorkingItem(player, Item::KingsRock) || hasWorkingAbility(player, Ability::Stench)
-                                   || hasWorkingItem(player, Item::RazorFang))) {
+                                   || hasWorkingItem(player, Item::RazorFang))
+        /* In 3rd gen, only moves without secondary effects are able to cause King's Rock flinch */
+        && (gen() > 4 || (tmove(player).category == Move::StandardMove && tmove(player).flinchRate == 0))) {
         /* King's rock */
         if (coinflip(10, 100)) {
             turnMemory(target)["Flinched"] = true;
@@ -2328,6 +2482,8 @@ bool BattleSituation::testFail(int player)
     if (turnMemory(player)["Failed"].toBool() == true) {
         if (turnMemory(player)["FailingMessage"].toBool()) {
             notify(All, Failed, player);
+            if (useBattleLog)
+                appendBattleLog("Failed", tr("But it failed!"));
         }
         return true;
     }
@@ -2435,6 +2591,13 @@ void BattleSituation::useAttack(int player, int move, bool specialOccurence, boo
 
     if (tellPlayers && !turnMemory(player).contains("TellPlayers")) {
         notify(All, UseAttack, player, qint16(attack));
+        if (useBattleLog) {
+            appendBattleLog("UseAttack", tr("%1 used %2!").arg(escapeHtml(
+                                                                   tu(nick(player))),
+                                                               toBoldColor(MoveInfo::Name(attack),
+                                                                           Theme::TypeColor(MoveInfo::Type(attack, gen()))
+                                                                           )));
+        }
     }
 
     calleffects(player, player, "AfterTellingPlayers");
@@ -2591,6 +2754,8 @@ void BattleSituation::useAttack(int player, int move, bool specialOccurence, boo
 
     if (targetList.size() == 0) {
         notify(All, NoOpponent, player);
+        if (useBattleLog)
+            appendBattleLog("NoOpponent", tr("But there was no target..."));
         goto end;
     }
 
@@ -2646,6 +2811,8 @@ void BattleSituation::useAttack(int player, int move, bool specialOccurence, boo
             if (typemod == 0) {
                 /* If it's ineffective we just say it */
                 notify(All, Effective, target, quint8(typemod));
+                if (useBattleLog)
+                    appendBattleLog("Effective", tr("It had no effect!"));
                 calleffects(player,target,"AttackSomehowFailed");
                 continue;
             }
@@ -2689,6 +2856,28 @@ void BattleSituation::useAttack(int player, int move, bool specialOccurence, boo
                 if (tmove(player).power > 1 && repeatCount() == 0) {
                     notify(All, Effective, target, quint8(typemod));
                 }
+
+                    if (useBattleLog) {
+                        switch (typemod)
+                        {
+                        case 0:
+                            appendBattleLog("Effective", tr("It had no effect!"));
+                            break;
+
+                        case 1:
+                        case 2:
+                            appendBattleLog("Effective", toColor(tr("It's not very effective..."), Qt::gray));
+                            break;
+
+                        case 8:
+                        case 16:
+                            appendBattleLog("Effective", toColor(tr("It's super effective!"), Qt::blue));
+                            break;
+
+                        default:
+                            break;
+                        }
+                    }
 
                 if (tmove(player).power > 1) {
                     testCritical(player, target);
@@ -2779,6 +2968,9 @@ void BattleSituation::useAttack(int player, int move, bool specialOccurence, boo
                    && TypeInfo::Eff(type, getType(target, 1)) * TypeInfo::Eff(type, getType(target, 2)) == 0
                    && !pokeMemory(target).value(QString("%1Sleuthed").arg(type)).toBool()))){
                 notify(All, Failed, player);
+
+                if (useBattleLog)
+                    appendBattleLog("Failed", tr("But it failed!"));
                 continue;
             }
 
@@ -2843,6 +3035,8 @@ trueend:
 void BattleSituation::unthaw(int player)
 {
     notify(All, StatusMessage, player, qint8(FreeFrozen));
+    if (useBattleLog)
+        appendBattleLog("StatusMessage", toColor(escapeHtml(tu(tr("%1 thawed out!").arg(nick(player)))), Theme::TypeColor(Type::Dark).name()));
     healStatus(player, Pokemon::Frozen);
 }
 
@@ -2850,11 +3044,15 @@ void BattleSituation::notifyKO(int player)
 {
     changeStatus(player,Pokemon::Koed);
     notify(All, Ko, player);
+   if (useBattleLog)
+        appendBattleLog("Ko", "<b>" + escapeHtml(tu(tr("%1 fainted!").arg(nick(player)))) + "</b>");
 }
 
 void BattleSituation::notifyHits(int spot, int number)
 {
     notify(All, Hit, spot, quint8(number));
+    if (useBattleLog)
+        appendBattleLog("Hit", tr("Hit %1 times!").arg(QString::number(number)));
 }
 
 bool BattleSituation::hasMove(int player, int move) {
@@ -3059,6 +3257,16 @@ void BattleSituation::inflictRecoil(int source, int target)
     }
 
     notify(All, Recoil, recoil < 0 ? source : target, bool(recoil < 0));
+
+    int who = recoil < 0 ? source : target;
+
+    if (useBattleLog) {
+        if (recoil < 0)
+            appendBattleLog("Recoil", tu(tr("%1 is hit with recoil!").arg(nick(who))));
+        else
+            appendBattleLog("Recoil", tu(tr("%1 had its energy drained!").arg(nick(who))));
+    }
+
 
     // "33" means one-third
     //if (recoil == -33) recoil = -100 / 3.; -- commented out until ingame confirmation
@@ -3297,6 +3505,9 @@ bool BattleSituation::gainStatMod(int player, int stat, int bonus, int , bool te
     int boost = fpoke(player).boosts[stat];
     if (boost < 6 && (gen() > 2 || getStat(player, stat) < 999)) {
         notify(All, StatChange, player, qint8(stat), qint8(bonus), !tell);
+	if (useBattleLog)
+                appendBattleLog("StatChange",
+                                tu(tr("%1's %2 %3%4!").arg(nick(player), StatInfo::Stat(stat), abs(boost) > 1 ? tr("sharply ") : "", tr("rose"))));
         changeStatMod(player, stat, std::min(boost+bonus, 6));
     }
 
@@ -3316,9 +3527,10 @@ bool BattleSituation::loseStatMod(int player, int stat, int malus, int attacker,
             return false;
         }
 
-        if(teamMemory(this->player(player)).value("MistCount").toInt() > 0) {
-            if (canSendPreventMessage(player, attacker))
-                sendMoveMessage(86, 2, player,Pokemon::Ice,player, tmove(attacker).attack);
+        if(teamMemory(this->player(player)).value("MistCount").toInt() > 0 && (!hasWorkingAbility(attacker, Ability::SlipThrough) || this->player(player) == this->player(attacker))) {
+            if (canSendPreventMessage(player, attacker)) {
+                    sendMoveMessage(86, 2, player,Pokemon::Ice,player, tmove(attacker).attack);
+            }
             return false;
         }
     }
@@ -3326,6 +3538,9 @@ bool BattleSituation::loseStatMod(int player, int stat, int malus, int attacker,
     int boost = fpoke(player).boosts[stat];
     if (boost > -6) {
         notify(All, StatChange, player, qint8(stat), qint8(-malus), !tell);
+            if (useBattleLog)
+                appendBattleLog("StatChange",
+                                tu(tr("%1's %2 %3%4!").arg(nick(player), StatInfo::Stat(stat), abs(boost) > 1 ? tr("sharply ") : "", tr("fell"))));
         changeStatMod(player, stat, std::max(boost-malus, -6));
 
         if (!applyingMoveStatMods) {
@@ -3351,9 +3566,18 @@ void BattleSituation::inflictStatus(int player, int status, int attacker, int mi
                  tmove(attacker).classification == Move::StatAndStatusMove) && canSendPreventSMessage(player, attacker)) {
             if (poke(player).status() == status) {
                 notify(All, AlreadyStatusMessage, player, quint8(poke(player).status()));
+                if (useBattleLog)
+                    appendBattleLog("AlreadyStatusMessage", toColor(
+                                        tr("%1 is already %2.").arg(tu(nick(player)), StatInfo::Status(status)),
+                                        Theme::StatusColor(status)
+                                        ));
             }
-            else {
+            else
+            {
                 notify(All, Failed, player);
+
+                if (useBattleLog)
+                    appendBattleLog("Failed", tr("But it failed!"));
             }
         }
         return;
@@ -3373,8 +3597,10 @@ void BattleSituation::inflictStatus(int player, int status, int attacker, int mi
         }
 
         if(teamMemory(this->player(player)).value("SafeGuardCount").toInt() > 0) {
-            sendMoveMessage(109, 2, player,Pokemon::Psychic, player, tmove(player).attack);
-            return;
+            if (!hasWorkingAbility(attacker, Ability::SlipThrough) || this->player(player) == this->player(attacker)) {
+                sendMoveMessage(109, 2, player,Pokemon::Psychic, player, tmove(player).attack);
+                return;
+            }
         }
     }
 
@@ -3427,6 +3653,13 @@ void BattleSituation::inflictConfused(int player, int attacker, bool tell)
         if (this->attacker() == attacker && attacker != player && canSendPreventSMessage(player, attacker))
         {
             notify(All, AlreadyStatusMessage, player, quint8(Pokemon::Confused));
+	    int status = Pokemon::Confused;
+	
+            if (useBattleLog)
+                appendBattleLog("AlreadyStatusMessage", toColor(
+                                    tr("%1 is already %2.").arg(tu(nick(player)), StatInfo::Status(status)),
+                                    Theme::StatusColor(status)
+                                    ));
         }
         return;
     }
@@ -3454,6 +3687,9 @@ void BattleSituation::inflictConfused(int player, int attacker, bool tell)
 
     if (tell) {
         notify(All, StatusChange, player, qint8(Pokemon::Confused));
+        if (useBattleLog)
+            appendBattleLog("StatusChange",
+                            toColor(escapeHtml(tu(tr("%1 became confused!").arg(nick(player)))), Theme::TypeColor(Type::Ghost).name()));
     }
 
     callieffects(player, player,"AfterStatusChange");
@@ -3485,12 +3721,52 @@ void BattleSituation::endTurnWeather()
         return;
     }
 
+    QColor c = Theme::TypeColor(TypeInfo::TypeForWeather(weather));
+
     int count = weatherCount - 1;
     if (count == 0) {
         notify(All, WeatherMessage, Player1, qint8(EndWeather), qint8(weather));
+       if (useBattleLog) {
+            switch(weather) {
+            case Hail:
+                appendBattleLog("WeatherMessage", toColor(tr("The hail subsided!"),c));
+                break;
+
+            case SandStorm:
+                appendBattleLog("WeatherMessage", toColor(tr("The sandstorm subsided!"),c));
+                break;
+
+            case Sunny:
+                appendBattleLog("WeatherMessage", toColor(tr("The sunlight faded!"),c));
+                break;
+
+            case Rain:
+                appendBattleLog("WeatherMessage", toColor(tr("The rain stopped!"),c));
+                break;
+            }
+        }
         callForth(NormalWeather, -1);
     } else {
         notify(All, WeatherMessage, Player1, qint8(ContinueWeather), qint8(weather));
+        if (useBattleLog) {
+            switch(weather) {
+            case Hail:
+                appendBattleLog("WeatherMessage", toColor(tr("Hail continues to fall!"),c));
+                break;
+
+            case SandStorm:
+                appendBattleLog("WeatherMessage", toColor(tr("The sandstorm rages!"),c));
+                break;
+
+            case Sunny:
+                appendBattleLog("WeatherMessage", toColor(tr("The sunlight is strong!"),c));
+                break;
+
+            case Rain:
+                appendBattleLog("WeatherMessage", toColor(tr("Rain continues to fall!"),c));
+                break;
+            }
+        }
 
         /* And now the weather damage! */
         if (isWeatherWorking(weather)) {
@@ -3505,7 +3781,17 @@ void BattleSituation::endTurnWeather()
                 if (!turnMemory(i).contains("WeatherSpecialed") && (weather == Hail || weather == SandStorm) &&!immuneTypes.contains(getType(i,1))
                         && !immuneTypes.contains(getType(i,2)) && !hasWorkingAbility(i, Ability::MagicGuard)) {
                     notify(All, WeatherMessage, i, qint8(HurtWeather),qint8(weather));
+                    if (useBattleLog) {
+                        switch(weather) {
+                        case Hail:
+                            appendBattleLog("WeatherMessage", toColor(tr("%1 is buffeted by the hail!").arg(tu(nick(i))),c));
+                            break;
 
+                        case SandStorm:
+                            appendBattleLog("WeatherMessage", toColor(tr("%1 is buffeted by the sandstorm!").arg(tu(nick(i))),c));
+                            break;
+                        }
+                    }
                     //In GSC, the damage is 1/8, otherwise 1/16
                     inflictDamage(i, poke(i).totalLifePoints()*(gen() > 2 ? 1 : 2)/16, i, false);
                     if (gen() >= 5) {
@@ -3595,6 +3881,25 @@ void BattleSituation::changeStatus(int player, int status, bool tell, int turns)
 
     if (tell) {
         notify(All, StatusChange, player, qint8(status));
+
+        if (useBattleLog) {
+            static const QString statusChangeMessages[6] = {
+                tr("%1 is paralyzed! It may be unable to move!"),
+                tr("%1 fell asleep!"),
+                tr("%1 was frozen solid!"),
+                tr("%1 was burned!"),
+                tr("%1 was poisoned!"),
+                tr("%1 was badly poisoned!")
+            };
+
+            bool multipleTurns = true;
+            if (status > Pokemon::Fine && status <= Pokemon::Poisoned) {
+                appendBattleLog("StatusChange", toColor(
+                                    tu(statusChangeMessages[status-1 + (status == Pokemon::Poisoned && multipleTurns)].arg(nick(player))),
+                                    Theme::StatusColor(status)
+                                    ));
+            }
+        }
     }
     notify(All, AbsStatusChange, this->player(player), qint8(this->slotNum(player)), qint8(status), turns > 0);
     poke(player).addStatus(status);
@@ -3718,6 +4023,7 @@ int BattleSituation::calculateDamage(int p, int t)
         }
     }
 
+
     /* Used by Oaths to use a special attack, the sum of both */
     if (move.contains("AttackStat")) {
         attack = move.value("AttackStat").toInt();
@@ -3736,11 +4042,15 @@ int BattleSituation::calculateDamage(int p, int t)
 
     int stab = move["Stab"].toInt();
     int typemod = move["TypeMod"].toInt();
-    int randnum = randint(16) + 85;
+    int randnum;
+    if (gen() == 1) {
+      randnum = randint(38) + 217;
+    } else {
+      randnum = randint(16) + 85;
+    }
     //Spit Up
     if (attackused == Move::SpitUp) randnum = 100;
     int ch = 1 + (crit * (1+hasWorkingAbility(p,Ability::Sniper))); //Sniper
-    int type = tmove(p).type;
 
     /*** WARNING ***/
     /* The peculiar order here is caused by the fact that helping hand applies before item boosts,
@@ -3753,6 +4063,20 @@ int BattleSituation::calculateDamage(int p, int t)
     }
 
     int power = tmove(p).power;
+    int type = tmove(p).type;
+
+    /* Calculate the multiplier for two turn attacks */ 
+    if (pokeMemory(t).contains("VulnerableMoves") && pokeMemory(t).value("Invulnerable").toBool()) {
+        QList<int> vuln_moves = pokeMemory(t)["VulnerableMoves"].value<QList<int> >();
+        QList<int> vuln_mults = pokeMemory(t)["VulnerableMults"].value<QList<int> >();
+    
+        for (int i = 0; i < vuln_moves.size(); i++) {
+            if (vuln_moves[i] == attackused) {
+                power = power * vuln_mults[i];
+            }
+        }
+    }
+
     if (move.contains("HelpingHanded")) {
         power = power * 3 / 2;
     }
@@ -3972,6 +4296,12 @@ end:
             }
 
             if (straightattack) {
+                if (useBattleLog) {
+                    appendBattleLog("StraightDamage", tu(tr("%1 lost %2% of its health!").
+                                                         arg(nick(player)).
+                                                         arg(qint16(damage*100/poke(player).totalLifePoints()))));
+                }
+
                 notify(this->player(player), StraightDamage,player, qint16(damage));
                 notify(AllButPlayer, StraightDamage,player, qint16(damage*100/poke(player).totalLifePoints()));
             }
@@ -4203,6 +4533,8 @@ void BattleSituation::healDamage(int player, int target)
                 (gen()== 1 && !hasSubstitute(target)))){
         /* Struggle: actually recoil damage */
         notify(All, Recoil, player, true);
+        if (useBattleLog)
+            appendBattleLog("Recoil", tu(tr("%1 is hit with recoil!").arg(nick(player))));
         inflictDamage(player, -poke(player).totalLifePoints() * healing / 100, player);
     }
 }
@@ -4239,6 +4571,12 @@ void BattleSituation::koPoke(int player, int source, bool straightattack)
     if (straightattack) {
         notify(this->player(player), StraightDamage,player, qint16(damage));
         notify(AllButPlayer, StraightDamage,player, qint16(damage*100/poke(player).totalLifePoints()));
+
+        if (useBattleLog) {
+            appendBattleLog("StraightDamage", tu(tr("%1 lost %2% of its health!").
+                                                 arg(nick(player)).
+                                                 arg(qint16(damage*100/poke(player).totalLifePoints()))));
+        }
     }
 
     if (!attacking() || tmove(attacker()).power == 0 || gen() == 5) {
@@ -4417,6 +4755,11 @@ void BattleSituation::endBattle(int result, int winner, int loser)
     if (result == Tie) {
         notify(All, BattleEnd, Player1, qint8(Tie));
 
+        if (useBattleLog) {
+            appendBattleLog("BattleEnd", toBoldColor(tr("Tie between %1 and %2!").arg(name(Player1), name(Player2)), Qt::blue));
+            appendBattleLog("Space", "");
+        }
+
         emit battleFinished(publicId(), Tie, id(Player1), id(Player2));
         exit();
     }
@@ -4424,6 +4767,13 @@ void BattleSituation::endBattle(int result, int winner, int loser)
         notify(All, BattleEnd, winner, qint8(Win));
         notify(All, EndMessage, winner, winMessage[winner]);
         notify(All, EndMessage, loser, loseMessage[loser]);
+
+       if (useBattleLog) {
+            appendBattleLog("BattleEnd", toBoldColor(tr("%1 won the battle!").arg(name(winner)), Qt::blue));
+            appendBattleLog("Space", "");
+            appendBattleLog("EndMessage", QString("<span style='color:green'><b>" + escapeHtml(name(winner)) + ": </b></span>" + escapeHtml(winMessage[winner])));
+            appendBattleLog("EndMessage", QString("<span style='color:#5811b1'><b>" + escapeHtml(name(loser)) + ": </b></span>" + escapeHtml(loseMessage[loser])));
+        }
 
         emit battleFinished(publicId(), Win, id(winner), id(loser));
         exit();
@@ -4613,6 +4963,26 @@ void BattleSituation::sendMoveMessage(int move, int part, int src, int type, int
     } else {
         notify(All, MoveMessage, src, quint16(move), uchar(part), qint8(type), qint8(foe), qint16(other), q);
     }
+
+    if (useBattleLog) {
+        QString mess = MoveInfo::MoveMessage(move,part);
+        mess.replace("%s", nick(src));
+        mess.replace("%ts", name(src));
+        if(foe != -1) {
+            mess.replace("%tf", name(foe));
+            mess.replace("%f", nick(foe));
+        }
+        mess.replace("%t", TypeInfo::Name(type));
+        if(other != -1) {
+            mess.replace("%m", MoveInfo::Name(other));
+            mess.replace("%d", QString::number(other));
+            mess.replace("%q", q);
+            mess.replace("%i", ItemInfo::Name(other));
+            mess.replace("%a", AbilityInfo::Name(other));
+            mess.replace("%p", PokemonInfo::Name(other));
+        }
+        appendBattleLog("MoveMessage", toColor(escapeHtml(tu(mess)), Theme::TypeColor(type)));
+    }
 }
 
 void BattleSituation::sendAbMessage(int move, int part, int src, int foe, int type, int other)
@@ -4624,6 +4994,33 @@ void BattleSituation::sendAbMessage(int move, int part, int src, int foe, int ty
     } else {
         notify(All, AbilityMessage, src, quint16(move), uchar(part), qint8(type), qint8(foe), qint16(other));
     }
+
+    if (useBattleLog) {
+        // in >> ab >> part >> type >> foe >> other;
+        QString mess = AbilityInfo::Message(move,part);
+        mess.replace("%st", StatInfo::Stat(other));
+        mess.replace("%s", nick(src));
+        //            mess.replace("%ts", name(spot));
+        //            mess.replace("%tf", name(!spot));
+        mess.replace("%t", TypeInfo::Name(type));
+        if(foe != -1) {
+            mess.replace("%f", nick(foe));
+        }
+        if(other != -1) {
+            mess.replace("%m", MoveInfo::Name(other));
+            //  mess.replace("%d", QString::number(other));
+            mess.replace("%i", ItemInfo::Name(other));
+            mess.replace("%a", AbilityInfo::Name(other));
+            mess.replace("%p", PokemonInfo::Name(other));
+        }
+        if (type == Pokemon::Normal) {
+            mess = escapeHtml(tu(mess));
+        } else {
+            mess = toColor(escapeHtml(tu(mess)),Theme::TypeColor(type));
+        }
+        appendBattleLog("AbilityMessage", mess);
+    }
+
 }
 
 void BattleSituation::sendItemMessage(int move, int src, int part, int foe, int berry, int stat)
@@ -4636,6 +5033,29 @@ void BattleSituation::sendItemMessage(int move, int src, int part, int foe, int 
         notify(All, ItemMessage, src, quint16(move), uchar(part), qint8(foe), qint16(berry));
     else
         notify(All, ItemMessage, src, quint16(move), uchar(part), qint8(foe), qint16(berry), qint16(stat));
+
+    if (useBattleLog) {
+        // in >> item >> part >> foe >> berry >> other;
+        QString mess = ItemInfo::Message(move, part);
+        mess.replace("%st", StatInfo::Stat(stat));
+        mess.replace("%s", nick(src));
+        if(foe != -1) {
+            mess.replace("%f", nick(foe));
+        }
+        if(berry != -1) {
+            mess.replace("%i", ItemInfo::Name(berry));
+        }
+        if(stat != -1) {
+            mess.replace("%m", MoveInfo::Name(stat));
+        }
+        /* Balloon gets a really special treatment */
+        if (src == 35)
+            mess = QString("<b>%1</b>").arg(escapeHtml(tu(mess)));
+        else
+            mess = tu(mess);
+
+        appendBattleLog("ItemMessage", mess);
+    }
 }
 
 void BattleSituation::sendBerryMessage(int move, int src, int part, int foe, int berry, int stat)
@@ -4837,4 +5257,30 @@ bool BattleSituation::isThereUproar()
 void BattleSituation::BasicMoveInfo::reset()
 {
     memset(this, 0, sizeof(*this));
+}
+void BattleSituation::appendBattleLog(const QString &command, const QString &message)
+{
+    QString log("<div class=\""+command+"\">" + message + "</div>\n");
+    battleLog.write( log.toUtf8() );
+    battleLog.flush();
+}
+
+void BattleSituation::writeUsageLog()
+{
+    QTextStream log(&usageLog);
+    log << ratings[0] << "\n" << ratings[1] << "\n";
+    for (int i = 0; i < 6; i++) {
+        log << team1.poke(i).num().toPokeRef() << "\n" << team1.poke(i).item() << "\n" <<  team1.poke(i).nature() << "\n" << team1.poke(i).ability() << "\n";
+        for (int j = 0; j < 4; j++) { log << team1.poke(i).move(j).num() << "\n"; }
+        for (int j = 0; j < 6; j++) { log << team1.poke(i).evs()[j] << "\n"; }
+        log << team2.poke(i).num().toPokeRef() << "\n" << team2.poke(i).item() << "\n" <<  team2.poke(i).nature() << "\n" << team2.poke(i).ability() << "\n";
+        for (int j = 0; j < 4; j++) { log << team2.poke(i).move(j).num() << "\n"; }
+        for (int j = 0; j < 6; j++) { log << team2.poke(i).evs()[j] << "\n"; }
+    }
+    usageLog.close();
+}
+
+void BattleSituation::setLogging(const bool logging)
+{
+    useBattleLog = logging;
 }
