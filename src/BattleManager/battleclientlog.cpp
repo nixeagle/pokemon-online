@@ -9,15 +9,24 @@ typedef BattleData<DataContainer> battledata;
 
 BattleClientLog::BattleClientLog(battledata *dat, BattleDefaultTheme *theme) : mData(dat), mTheme(theme)
 {
+    hasLoggedTeams = false;
+    bool spectator = !(data()->role(battledata::Player1) == BattleConfiguration::Player || data()->role(battledata::Player2) == BattleConfiguration::Player);
     pushHtml("<!DOCTYPE html>");
-    pushHtml("<!-- Pokemon Online battle spectator log (version 2.0) -->");
+    pushHtml(QString("<!-- Pokemon Online battle%1 log (version 2.0) -->\n").arg(spectator ? " spectator": ""));
     pushHtml(QString("<head>\n\t<title>%1 vs %2</title>\n</head>").arg(data()->name(battledata::Player1), data()->name(battledata::Player2)));
     pushHtml("<body>");
 
-    if (data()->role(battledata::Player1) == BattleConfiguration::Player || data()->role(battledata::Player2) == BattleConfiguration::Player) {
+    if (!spectator) {
         printHtml("BattleStart", toBoldColor(tr("Battle between %1 and %2 started!"), Qt::blue).arg(data()->name(battledata::Player1), data()->name(battledata::Player2)));
     } else {
         printHtml("BattleStart", toBoldColor(tr("Battle between %1 and %2 is underway!"), Qt::blue).arg(data()->name(battledata::Player1), data()->name(battledata::Player2)));
+    }
+}
+
+void BattleClientLog::emitAll()
+{
+    foreach(QString s, getLog()) {
+        emit lineToBePrinted(s);
     }
 }
 
@@ -39,16 +48,16 @@ void BattleClientLog::printLine(const QString &cl, const QString &str, bool sile
     }
 
     if (!silent) {
-        pushHtml(QString("<div class=\"%1\">%2</div><br />").arg(cl, str));
-        emit lineToBePrinted(QString("%2<br />").arg(str));
+        pushHtml(QString("<div class=\"%1\">%2</div><br />\n").arg(cl, str));
+        emit lineToBePrinted(QString("%2<br />\n").arg(str));
     } else {
-        pushHtml(QString("<!-- <div class=\"%1\">%2</div> -->").arg(cl, str));
+        pushHtml(QString("<!-- <div class=\"%1\">%2</div> -->\n").arg(cl, str));
     }
 }
 
 void BattleClientLog::printSilent(const QString &str)
 {
-    pushHtml("<!--"+str+"-->");
+    pushHtml("<!--"+str+"-->\n");
 }
 
 QStringList BattleClientLog::getLog()
@@ -65,8 +74,8 @@ void BattleClientLog::printHtml(const QString &cl, const QString &str)
 {
     blankMessage = false;
 
-    pushHtml(QString("<div class=\"%1\">%2</div><br />").arg(cl, str));
-    emit lineToBePrinted(QString("%2<br />").arg(str));
+    pushHtml(QString("<div class=\"%1\">%2</div><br />\n").arg(cl, str));
+    emit lineToBePrinted(QString("%2<br />\n").arg(str));
 }
 
 QString BattleClientLog::nick(int spot)
@@ -262,12 +271,12 @@ void BattleClientLog::onAttackFailing(int)
     printLine("Failed", tr("But if failed!"));
 }
 
-void BattleClientLog::onPlayerMessage(int spot, QString message)
+void BattleClientLog::onPlayerMessage(int spot, const QString &message)
 {
     printHtml("PlayerChat", QString("<span style='color:") + (spot?"#5811b1":"green") + "'><b>" + escapeHtml(data()->name(spot)) + ": </b></span>" + escapeHtml(message));
 }
 
-void BattleClientLog::onSpectatorJoin(int id, QString name)
+void BattleClientLog::onSpectatorJoin(int id, const QString &name)
 {
     spectators.insert(id, name);
 
@@ -280,12 +289,12 @@ void BattleClientLog::onSpectatorLeave(int id)
     spectators.remove(id);
 }
 
-void BattleClientLog::onSpectatorChat(int id, QString message)
+void BattleClientLog::onSpectatorChat(int id, const QString &message)
 {
     printHtml("SpectatorChat", toColor(spectators.value(id), Qt::blue) + ": " + escapeHtml(message));
 }
 
-void BattleClientLog::onMoveMessage(int spot, int move, int part, int type, int foe, int other, QString q)
+void BattleClientLog::onMoveMessage(int spot, int move, int part, int type, int foe, int other, const QString &q)
 {
     QString mess = MoveInfo::MoveMessage(move,part);
     mess.replace("%s", nick(spot));
@@ -466,7 +475,7 @@ void BattleClientLog::setTheme(BattleDefaultTheme *theme)
     mTheme = theme;
 }
 
-void BattleClientLog::onTierNotification(QString tier)
+void BattleClientLog::onTierNotification(const QString &tier)
 {
     printHtml("Tier", toBoldColor(tr("Tier: "), Qt::blue) + tier);
     printHtml("Mode", toBoldColor(tr("Mode: "), Qt::blue) + ChallengeInfo::modeName(data()->mode()));
@@ -479,4 +488,40 @@ void BattleClientLog::onShiftSpots(int player, int spot1, int spot2, bool silent
     } else {
         printLine("ShiftSpots", tr("%1 shifted spots with %2!").arg(tu(nick(data()->spot(player, spot2))), nick(data()->spot(player, spot1))), silent);
     }
+}
+
+void BattleClientLog::onVariation(int, int bonus, int malus)
+{
+    printHtml("Variation", tr("%1+%2, %3").arg(toBoldColor(tr("Variation: "), Qt::blue)).arg(bonus).arg(malus));
+}
+
+void BattleClientLog::onRearrangeTeam(int, const ShallowShownTeam &team)
+{
+    if (hasLoggedTeams) {
+        return;
+    }
+    hasLoggedTeams = true;
+
+    int mp = data()->role(battledata::Player1) == BattleConfiguration::Player ? battledata::Player1 : battledata::Player2;
+
+    QStringList mynames, oppnames;
+
+    for (int i = 0; i < 6; i++) {
+        Pokemon::uniqueId id = data()->team(mp).poke(i)->num();
+
+        if (id != Pokemon::NoPoke) {
+            mynames.push_back(PokemonInfo::Name(id));
+        }
+    }
+    for (int i = 0; i < 6; i++) {
+        Pokemon::uniqueId id = team.poke(i).num;
+
+        if (id != Pokemon::NoPoke) {
+            oppnames.push_back(PokemonInfo::Name(id));
+        }
+    }
+
+    printHtml("Teams", toBoldColor(tr("Your team: "), Qt::blue) + mynames.join(" / "));
+    printHtml("Teams", toBoldColor(tr("Opponent's team: "), Qt::blue) + oppnames.join(" / "));
+    onBlankMessage();
 }

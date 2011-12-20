@@ -33,11 +33,11 @@ public:
     void onStatusDamage(int spot, int status);
     void onStatusOver(int spot, int status);
     void onAttackFailing(int spot);
-    void onPlayerMessage(int spot, QString message);
-    void onSpectatorJoin(int id, QString name);
+    void onPlayerMessage(int spot, const QString &message);
+    void onSpectatorJoin(int id, const QString &name);
     void onSpectatorLeave(int id);
-    void onSpectatorChat(int id, QString message);
-    void onMoveMessage(int spot, int move, int part, int type, int foe, int other, QString data);
+    void onSpectatorChat(int id, const QString &message);
+    void onMoveMessage(int spot, int move, int part, int type, int foe, int other, const QString &data);
     void onNoTarget(int spot);
     void onItemMessage(int spot, int item, int part, int foe, int berry, int other);
     void onFlinch(int spot);
@@ -53,7 +53,7 @@ public:
     void onBlankMessage();
     void onClauseActivated(int clause);
     void onRatedNotification(bool rated);
-    void onTierNotification(QString tier);
+    void onTierNotification(const QString &tier);
 //    void onDynamicInfo(int spot, BattleDynamicInfo info);
 //    void onPokemonVanish(int spot);
 //    void onPokemonReappear(int spot);
@@ -64,6 +64,8 @@ public:
 //    void onClockStop(int player, int time);
     void onShiftSpots(int player, int spot1, int spot2, bool silent);
     void onBattleEnd(int res, int winner);
+    void onVariation(int player, int bonus, int malus);
+    void onRearrangeTeam(int player, const ShallowShownTeam& team);
 
     QString nick(int spot);
     QString rnick(int spot);
@@ -78,6 +80,7 @@ public:
     void printSilent(const QString&);
 
     QStringList getLog();
+    void emitAll();
 signals:
     void lineToBePrinted(const QString &);
 protected:
@@ -87,6 +90,7 @@ protected:
     BattleDefaultTheme *theme();
 
     QStringList log;
+    bool hasLoggedTeams;
     QHash<int, QString> spectators;
     bool blankMessage;
 };
