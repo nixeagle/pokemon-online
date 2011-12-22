@@ -1,7 +1,9 @@
 #include "teamdata.h"
 
-TeamData::TeamData(TeamBattle *team)
+TeamData::TeamData(const TeamBattle *team)
 {
+    mAvatar = 0;
+
     if (!team) {
         for (int i = 0; i < 6; i++) {
             pokemons.push_back(new ShallowBattlePoke());
@@ -10,6 +12,7 @@ TeamData::TeamData(TeamBattle *team)
         for (int i = 0; i < 6; i++) {
             pokemons.push_back(new PokeBattle(team->poke(i)));
         }
+        mName = team->name;
     }
 }
 
@@ -29,12 +32,27 @@ QString &TeamData::name()
     return mName;
 }
 
-void TeamData::setPoke(int slot, ShallowBattlePoke *poke)
+QString TeamData::name() const
+{
+    return mName;
+}
+
+quint16 &TeamData::avatar()
+{
+    return mAvatar;
+}
+
+quint16 TeamData::avatar() const
+{
+    return mAvatar;
+}
+
+void TeamData::setPoke(int slot, const ShallowBattlePoke *poke)
 {
     *pokemons[slot] = *poke;
 }
 
-void TeamData::setPoke(int slot, PokeBattle *poke)
+void TeamData::setPoke(int slot, const PokeBattle *poke)
 {
     PokeBattle* trans = dynamic_cast<PokeBattle*>(pokemons[slot]);
 
@@ -45,11 +63,12 @@ void TeamData::setPoke(int slot, PokeBattle *poke)
     }
 }
 
-void TeamData::setTeam(TeamBattle *team)
+void TeamData::setTeam(const TeamBattle *team)
 {
     for (int i = 0; i < 6; i++) {
         setPoke(i, &team->poke(i));
     }
+    mName = team->name;
 }
 
 void TeamData::switchPokemons(int slot1, int slot2)

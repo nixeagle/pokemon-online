@@ -10,12 +10,12 @@ template <class T, class Derived>
 class BattleDataInherit : public BattleCommandManager<Derived>
 {
 public:
-    BattleDataInherit(BattleConfiguration *conf) : cont(conf), conf(conf) {
+    BattleDataInherit(const BattleConfiguration *conf) : cont(conf), conf(conf) {
     }
 
     typedef T container;
-    typedef decltype(container(0).team(0)) teamTypePtr;
-    typedef decltype(*teamTypePtr(0)) teamType;
+    typedef typename container::teamType* teamTypePtr;
+    typedef typename container::teamType teamType;
     typedef decltype(teamTypePtr(0)->poke(0)) pokeTypePtr;
     typedef decltype(*pokeTypePtr(0)) pokeType;
     typedef decltype(container(0).fieldPoke(0)) auxTypeRef;
@@ -100,16 +100,22 @@ public:
         team(player).switchPokemons(spot1, spot2);
     }
 
-    teamType &team(int player) { return *d()->team(this->player(player)); }
+    const teamType &team(int player) const { return *d()->team(this->player(player));}
+    teamType &team(int player) { return *d()->team(this->player(player));}
     pokeType &poke(int player) { return *team(this->player(player)).poke(slotNum(player));}
-    int player(int spot) { return spot%2;}
-    int opponent(int player) { return (player+1)%2;}
-    QString name(int player) { return team(this->player(player)).name();}
-    int slotNum(int player) { return player/2;}
-    int spot(int player, int slot) {return player+2*slot;}
+    int player(int spot) const { return spot%2;}
+    int opponent(int player) const { return (player+1)%2;}
+    QString name(int player) const { return team(this->player(player)).name();}
+    int slotNum(int player) const { return player/2;}
+    int spot(int player, int slot=0) {return player+2*slot;}
+    int clauses() const {return conf->clauses;}
+    int mode() const {return conf->mode;}
     auxTypeRef fieldPoke(int player) {return d()->fieldPoke(player);}
-    int gen() { return GEN_MAX; }
+    int gen() { return conf->gen; }
+    bool isKoed(int spot) { return poke(spot).isKoed();}
     BattleConfiguration::ReceivingMode role(int player) { return conf->receivingMode[this->player(player)];}
+    int numberOfSlots() const {return (conf->mode+1)*2;}
+    bool multiples() const {return (conf->mode != ChallengeInfo::Singles);}
 
     void reloadTeam(int player) {
         d()->reloadTeam(player);
@@ -123,8 +129,9 @@ public:
     container *exposedData() { return d(); }
 protected:
     container cont;
-    BattleConfiguration *conf;
+    const BattleConfiguration *conf;
     container* d() { return &cont;}
+    const container* d() const { return &cont;}
 };
 
 template <class T = DataContainer>
@@ -133,7 +140,7 @@ class BattleData: public BattleDataInherit<T, BattleData<T> >
 public:
     typedef BattleDataInherit<T, BattleData<T> > baseClass;
 
-    BattleData(BattleConfiguration *conf) : baseClass(conf) {}
+    BattleData(const BattleConfiguration *conf) : baseClass(conf) {}
 };
 
 #endif // BATTLEDATA_H

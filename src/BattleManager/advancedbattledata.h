@@ -9,7 +9,7 @@ class AdvancedBattleData : public BattleDataInherit<ProxyDataContainer, Advanced
 public:
     typedef BattleDataInherit<ProxyDataContainer, AdvancedBattleData> baseClass;
 
-    AdvancedBattleData(BattleConfiguration *conf) : baseClass(conf) {
+    AdvancedBattleData(const BattleConfiguration *conf) : baseClass(conf) {
 
     }
 
@@ -37,6 +37,10 @@ public:
     void onEndWeather(int weather) {
         (void) weather;
         d()->field()->setWeather(Weather::NormalWeather);
+    }
+
+    bool areAdjacent (int poke1, int poke2) const {
+        return abs(slotNum(poke1)-slotNum(poke2)) <= 1;
     }
 };
 

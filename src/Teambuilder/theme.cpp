@@ -45,6 +45,12 @@ class BattleTheme : public BattleDefaultTheme {
     QColor TypeColor(int t){return Theme::TypeColor(t);}
     QColor CategoryColor(int c){return Theme::CategoryColor(c);}
     QColor StatusColor(int s){return Theme::StatusColor(s);}
+    QPixmap TrainerSprite(int t){return Theme::TrainerSprite(t);}
+    QPixmap Sprite(const QString &s){return Theme::Sprite(s);}
+    QPixmap StatusIcon(int st){return Theme::StatusIcon(st);}
+    QPixmap Pic(const QString &s){return Theme::Pic(s);}
+    QPixmap BattleStatusIcon(int s){return Theme::BattleStatusIcon(s);}
+    QPixmap BattleGenderPicture(int g){return Theme::GenderPicture(g, Theme::BattleM);}
 };
 
 QString Theme::m_Directory;

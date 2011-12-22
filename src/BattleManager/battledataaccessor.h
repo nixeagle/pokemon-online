@@ -51,10 +51,16 @@ public:
     int life() const {return d()->life();}
     int lifePercent() const {return d()->lifePercent();}
     int totalLife() const {return d()->totalLife();}
+    int ability() const {return dd()->ability();}
+    int item() const {return dd()->item();}
+    int happiness() const {return dd()->item();}
+    const QList<int> &dvs() const { return dd()->dvs();}
+    BattleMove &move(int slot) {return dd()->move(slot);}
+    const BattleMove &move(int slot) const {return dd()->move(slot);}
     Q_INVOKABLE bool isKoed() const { return d()->ko();}
 
-    void adaptTo(ShallowBattlePoke *pokemon);
-    void adaptTo(PokeBattle *pokemon);
+    void adaptTo(const ShallowBattlePoke *pokemon);
+    void adaptTo(const PokeBattle *pokemon);
     void changeStatus(int fullStatus);
     void setNum(Pokemon::uniqueId num);
     void setLife(int newLife);
@@ -70,6 +76,8 @@ private:
     ShallowBattlePoke *pokeData;
     inline ShallowBattlePoke *d() {return pokeData;}
     inline const ShallowBattlePoke *d() const {return pokeData;}
+    inline PokeBattle* dd() {return (PokeBattle*)pokeData;}
+    inline const PokeBattle* dd() const {return (PokeBattle*)pokeData;}
 };
 
 class TeamProxy : public QObject
@@ -84,13 +92,21 @@ public:
         return pokemons[index];
     }
 
-    void setTeam(TeamBattle *team);
+    const PokeProxy* poke(int index) const {
+        return pokemons[index];
+    }
+
+    void setTeam(const TeamBattle *team);
     void setPoke(int index, ShallowBattlePoke *pokemon);
+    void setName(const QString &name);
+    void setAvatar(int avatar);
 
     void switchPokemons(int index, int prevIndex);
 
     Q_PROPERTY(QString name READ name CONSTANT)
-    QString name();
+    QString name() const;
+    Q_PROPERTY(quint16 avatar READ avatar CONSTANT)
+    quint16 avatar() const;
 signals:
     void pokemonsSwapped(int slot1, int slot2);
 private:

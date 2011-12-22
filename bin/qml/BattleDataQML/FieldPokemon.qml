@@ -17,7 +17,7 @@ Item {
     }
 
     function useAttack(attack, target) {
-        battle.scene.debug("Using attack " + attack + "\n");
+        //battle.scene.debug("Using attack " + attack + "\n");
         Moves.useAttack(woof, attack, target);
     }
 
@@ -202,13 +202,6 @@ Item {
             to: "substitute"
             SequentialAnimation {
                 ScriptAction { script: battle.scene.pause();}
-                NumberAnimation { target: image; property: "width"; to: image.implicitWidth*0.3; duration: 200;
-                    easing.type: Easing.OutQuad }
-                NumberAnimation { target: image; property: "width"; to: image.implicitWidth; duration: 200;
-                    easing.type: Easing.InQuad }
-                ScriptAction {
-                    script: image.width = undefined;
-                }
                 ParallelAnimation {
                     SequentialAnimation {
                         NumberAnimation { target: substitute; property: "anchors.bottomMargin"; to: 50; duration: 200
