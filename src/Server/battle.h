@@ -157,8 +157,6 @@ public:
     bool hasMinimalStatMod(int player, int stat);
     bool hasMaximalStatMod(int player, int stat);
     bool inflictStatMod(int player, int stat, int mod, int attacker, bool tell = true, bool *negative = NULL);
-    void setLogging(bool logging);
-    QString getBattleLogFilename() const;
 private:
     bool gainStatMod(int player, int stat, int bonus, int attacker, bool tell=true);
     /* Returns false if blocked */
@@ -319,8 +317,6 @@ private:
     bool allChoicesOkForPlayer(int player);
     bool allChoicesSet();
 
-    void appendBattleLog(const QString &command, const QString &message);
-    void writeUsageLog();
     QString name(int id);
     QString nick(int slot);
 signals:
@@ -361,11 +357,6 @@ private:
     int myid[2];
     QString winMessage[2];
     QString loseMessage[2];
-
-    bool useBattleLog;
-    bool recordUsage;
-    QFile battleLog;
-    QFile usageLog;
 protected:
     void timerEvent(QTimerEvent *);
 
