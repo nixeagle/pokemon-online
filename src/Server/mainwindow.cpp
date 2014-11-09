@@ -5,9 +5,9 @@
 MainWindow::MainWindow(Server *myserver, QWidget *parent)
     : QMainWindow(parent)
 {
-    QApplication::setQuitOnLastWindowClosed(false);
+    QApplication::setQuitOnLastWindowClosed(true);
 
-    setWindowTitle(tr("Pok\303\251mon Online Server"));
+    setWindowTitle(tr("Pokémon Online Server"));
     setWindowIcon(QIcon("db/icon-server.png"));
 
     setCentralWidget(myserverwidget = new ServerWidget(myserver));
@@ -88,5 +88,5 @@ MainWindow::~MainWindow()
 void MainWindow::closeEvent(QCloseEvent *)
 {
     myserverwidget->atShutDown();
-    exit(0);
+    close();
 }

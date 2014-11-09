@@ -136,6 +136,7 @@ void Server::start(){
     AbilityInfo::init("db/abilities/");
     HiddenPowerInfo::init("db/types/");
     StatInfo::init("db/status/");
+    GenderInfo::init("db/genders/"); //needed by battlelogs plugin
 
     printLine(tr("Pokemon database loaded"));
 
@@ -209,6 +210,7 @@ void Server::start(){
         s.setValue("logs_battle_files", false);
     }
     useChannelFileLog = s.value("logs_channel_files").toBool();
+    useBattleFileLog = s.value("logs_battle_files").toBool();
 
     /*
       The timer for clearing the last rated battles memory, set to 3 hours
@@ -1175,6 +1177,14 @@ void Server::afterChangeTier(int src, const QString &old, const QString &dest)
     myengine->afterChangeTier(src, old, dest);
 }
 
+bool Server::beforeFindBattle(int src) {
+    return myengine->beforeFindBattle(src);
+}
+
+void Server::afterFindBattle(int src) {
+    myengine->afterFindBattle(src);
+}
+
 bool Server::beforePlayerAway(int src, bool away)
 {
     return myengine->beforePlayerAway(src, away);
@@ -1199,6 +1209,14 @@ void Server::useChannelFileLogChanged(bool logging)
         return;
     useChannelFileLog = logging;
     printLine("Channel File Logging changed", false, true);
+}
+
+void Server::useBattleFileLogChanged(bool logging)
+{
+    if (useBattleFileLog == logging)
+        return;
+    useBattleFileLog = logging;
+    printLine("Battle File Logging changed", false, true);
 }
 
 void Server::TCPDelayChanged(bool lowTCP)
@@ -1755,6 +1773,22 @@ void Server::atServerShutDown() {
     delete pluginManager, pluginManager = NULL;
 
     myengine->serverShutDown();
+
+#ifdef WIN32
+    ::exit(0);
+#endif
+    // On linux, threads need to be cleared or the server may be left hanging...
+//    TierMachine::destroy();
+//    SecurityManager::destroy();
+
+//    connect(&battleThread, SIGNAL(finished()), this, SLOT(deleteLater()));
+//    battleThread.finish();
+//    exit(0);
+
+    //The above always hangs now for some reason on linux, so here we go
+    int *x = NULL;
+    *x += 1;
+
 }
 
 void Server::setAnnouncement(int &id, const QString &html) {

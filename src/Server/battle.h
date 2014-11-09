@@ -26,13 +26,10 @@ class BattleSituation : public ContextCallee, public BattleInterface
     PROPERTY(int , publicId);
     PROPERTY(bool, rated);
     PROPERTY(QString, tier);
-    PROPERTY(quint32, clauses);
     PROPERTY(int, attacker);
     PROPERTY(int, attacked);
-    PROPERTY(int, mode);
     PROPERTY(int, numberOfSlots);
     PROPERTY(bool, blocked);
-    PROPERTY(int, gen);
     PROPERTY(int, attackCount);
     PROPERTY(bool, rearrangeTime);
     PROPERTY(int, selfKoer);
@@ -45,7 +42,7 @@ public:
     BattleSituation(Player &p1, Player &p2, const ChallengeInfo &additionnalData, int id, PluginManager *p);
     ~BattleSituation();
 
-    const TeamBattle &pubteam(int id);
+    const TeamBattle &pubteam(int id) const;
     /* returns 0 or 1, or -1 if that player is not involved */
     int spot(int id) const;
     /* The other player */
@@ -56,7 +53,7 @@ public:
     /* returns the id corresponding to that spot (spot is 0 or 1) */
     int id(int spot) const;
     /* Return the configuration of the players (1 refer to that player, 0 to that one... */
-    BattleConfiguration configuration() const;
+    const BattleConfiguration &configuration() const;
     /* Returns the rating of the beginning of a battle, of a player */
     int rating(int spot) const;
 
@@ -73,6 +70,9 @@ public:
 
     void removeSpectator(int id);
 
+    int gen() const {return conf.gen;}
+    int mode() const {return conf.mode;}
+    quint32 clauses() const {return conf.clauses;}
     /*
 	Below Player is either 1 or 0, aka the spot of the id.
 	Use the functions above to make conversions
@@ -317,6 +317,8 @@ private:
     bool allChoicesOkForPlayer(int player);
     bool allChoicesSet();
 
+    void appendBattleLog(const QString &command, const QString &message);
+    void writeUsageLog();
     QString name(int id);
     QString nick(int slot);
 signals:
@@ -345,7 +347,6 @@ private:
     QList<bool> couldMove;
     QList<QPointer<Player> > pendingSpectators;
 
-    TeamBattle team1, team2;
     int ratings[2];
 
     /* timers */
@@ -357,6 +358,11 @@ private:
     int myid[2];
     QString winMessage[2];
     QString loseMessage[2];
+
+    bool useBattleLog;
+    bool recordUsage;
+    QFile battleLog;
+    QFile usageLog;
 protected:
     void timerEvent(QTimerEvent *);
 
@@ -624,15 +630,15 @@ public:
     // Public because used by Yawn
     int currentForcedSleepPoke[2];
 
-    /* Generate a random number from 0 to max-1 */
+    /* Generate a random number from 0 to max-1. Could be improved to use something better than modulo */
     unsigned randint(int max) const {
         return unsigned(rand_generator()) % max;
     }
     unsigned randint() const {
         return unsigned(rand_generator());
     }
-    /* Return true with probability (heads_chance/total) */
-    bool coinflip(int heads_chance, int total) const {
+    /* Return true with probability (heads_chance/total). Could be improved to use something better than modulo. */
+    bool coinflip(unsigned heads_chance, unsigned total) const {
         return (unsigned(rand_generator()) % total) < heads_chance;
     }
 private:
@@ -672,13 +678,15 @@ private:
         }
         //qDebug() << "Ending callp for " << this;
     }
+
+    BattleConfiguration conf;
 };
 
 inline void BattleSituation::notify(int player, int command, int who)
 {
     QByteArray tosend;
     QDataStream out(&tosend, QIODevice::WriteOnly);
-    out.setVersion(QDataStream::Qt_4_5);
+    out.setVersion(QDataStream::Qt_4_7);
 
     out << uchar(command) << qint8(who);
 
@@ -690,7 +698,7 @@ void BattleSituation::notify(int player, int command, int who, const T& param)
 {
     QByteArray tosend;
     QDataStream out(&tosend, QIODevice::WriteOnly);
-    out.setVersion(QDataStream::Qt_4_5);
+    out.setVersion(QDataStream::Qt_4_7);
 
     out << uchar(command) << qint8(who) << param;
 
@@ -702,7 +710,7 @@ void BattleSituation::notify(int player, int command, int who, const T1& param1,
 {
     QByteArray tosend;
     QDataStream out(&tosend, QIODevice::WriteOnly);
-    out.setVersion(QDataStream::Qt_4_5);
+    out.setVersion(QDataStream::Qt_4_7);
 
     out << uchar(command) << qint8(who) << param1 << param2;
 
@@ -714,7 +722,7 @@ void BattleSituation::notify(int player, int command, int who, const T1& param1,
 {
     QByteArray tosend;
     QDataStream out(&tosend, QIODevice::WriteOnly);
-    out.setVersion(QDataStream::Qt_4_5);
+    out.setVersion(QDataStream::Qt_4_7);
 
     out << uchar(command) << qint8(who) << param1 << param2 << param3;
 
@@ -726,7 +734,7 @@ void BattleSituation::notify(int player, int command, int who, const T1& param1,
 {
     QByteArray tosend;
     QDataStream out(&tosend, QIODevice::WriteOnly);
-    out.setVersion(QDataStream::Qt_4_5);
+    out.setVersion(QDataStream::Qt_4_7);
 
     out << uchar(command) << qint8(who) << param1 << param2 << param3 << param4;
 
@@ -738,7 +746,7 @@ void BattleSituation::notify(int player, int command, int who, const T1& param1,
 {
     QByteArray tosend;
     QDataStream out(&tosend, QIODevice::WriteOnly);
-    out.setVersion(QDataStream::Qt_4_5);
+    out.setVersion(QDataStream::Qt_4_7);
 
     out << uchar(command) << qint8(who) << param1 << param2 << param3 << param4 << param5;
 
@@ -750,7 +758,7 @@ void BattleSituation::notify(int player, int command, int who, const T1& param1,
 {
     QByteArray tosend;
     QDataStream out(&tosend, QIODevice::WriteOnly);
-    out.setVersion(QDataStream::Qt_4_5);
+    out.setVersion(QDataStream::Qt_4_7);
 
     out << uchar(command) << qint8(who) << param1 << param2 << param3 << param4 << param5 << param6;
 

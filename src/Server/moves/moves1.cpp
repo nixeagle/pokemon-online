@@ -3,6 +3,7 @@
 #include "../PokemonInfo/pokemoninfo.h"
 #include "items.h"
 #include "battlecounterindex.h"
+#include "../Shared/battlecommands.h"
 
 typedef BS::priorityBracket bracket;
 using namespace Move;
@@ -193,9 +194,14 @@ struct MMCamouflage : public MM {
     }
 
     static void uas (int s, int, BS &b) {
-        fpoke(b,s).type1 = Pokemon::Normal;
+        if (b.gen() >= 5) {
+            fpoke(b,s).type1 = Pokemon::Ground;
+            b.sendMoveMessage(17,0,s,4);
+        } else {
+            fpoke(b,s).type1 = Pokemon::Normal;
+            b.sendMoveMessage(17,0,s,0);
+        }
         fpoke(b,s).type2 = Pokemon::Curse;
-        b.sendMoveMessage(17,0,s,0);
     }
 };
 
@@ -491,7 +497,7 @@ struct MMDetect : public MM
 
     static bool testSuccess(int protectCount, BS &b) {
         if (b.gen() <= 2) {
-            int x = 256 / (1 << (std::min(protectCount, 8))) - 1;
+            unsigned x = 256 / (1 << (std::min(protectCount, 8))) - 1;
 
             return (b.randint() & 0xFF) < x;
         } else if (b.gen() <= 4) {
@@ -703,7 +709,7 @@ struct MMBellyDrum : public MM
         if (b.poke(s).lifePoints() <= std::max(b.poke(s).totalLifePoints()*turn(b,s)["BellyDrum_Arg"].toInt()/100,1)) {
             b.fail(s, 8);
 
-            /* Odd bug with crystal & stadium 2 */
+            /* Odd bug with gold, silver, crystal versions in gen 2 */
             if (b.gen() == 2 && move(b,s) == Move::BellyDrum) {
                 b.inflictStatMod(s, Attack, 2, s);
             }
@@ -801,8 +807,11 @@ struct MMCovet : public MM
         if (!b.koed(t) && b.poke(t).item() != 0 && !b.hasWorkingAbility(t, Ability::StickyHold)
                 && (!b.hasWorkingAbility(t, Ability::Multitype) || (b.gen() >= 5 && !ItemInfo::isPlate(b.poke(t).item())))
                 && !b.hasWorkingAbility(s, Ability::Multitype)
-                && b.pokenum(s).pokenum != Pokemon::Giratina && b.poke(s).item() == 0
-                && b.poke(t).item() != Item::GriseousOrb && !ItemInfo::isMail(b.poke(t).item())) /* Sticky Hold, MultiType, Giratina_O, Mail*/
+                && b.poke(s).item() == 0
+                && !(b.poke(t).item() == Item::GriseousOrb && (b.gen() <= 4 || PokemonInfo::OriginalForme(b.poke(t).num()) == Pokemon::Giratina || PokemonInfo::OriginalForme(b.poke(s).num()) == Pokemon::Giratina))
+                && !ItemInfo::isMail(b.poke(t).item())
+                && !(ItemInfo::isDrive(b.poke(t).item()) && (PokemonInfo::OriginalForme(b.poke(s).num()) == Pokemon::Genesect || PokemonInfo::OriginalForme(b.poke(t).num()) == Pokemon::Genesect)))
+                /* Sticky Hold, MultiType, Giratina_O, Mail, Genesect Drives*/
         {
             b.sendMoveMessage(23,(move(b,s)==Covet)?0:1,s,type(b,s),t,b.poke(t).item());
             b.acqItem(s, b.poke(t).item());
@@ -1054,7 +1063,7 @@ struct MMBounce : public MM
 
     static void daf(int s, int t, BS &b) {
         if (b.hasSubstitute(t) && move(b,s) == Move::FreeFall) {
-            b.notify(All, BS::UseAttack, s, qint16(Move::FreeFall));
+            b.notify(All, BattleCommands::UseAttack, s, qint16(Move::FreeFall));
             turn(b,s)["Failed"] = true;
         }
     }
@@ -1340,7 +1349,7 @@ struct MMDoomDesire : public MM
                     int typemod = turn(b,s)["TypeMod"].toInt();
                     if (typemod == 0) {
                         /* If it's ineffective we just say it */
-                        b.notify(All, BS::Effective, s, quint8(typemod));
+                        b.notify(All, BattleCommands::Effective, s, quint8(typemod));
                         return;
                     }
                     turn(b,s)["Stab"] = slot(b,s)["DoomDesireStab"];
@@ -1359,7 +1368,7 @@ struct MMDoomDesire : public MM
                     }
 
                     int damage = b.calculateDamage(s, s);
-                    b.notify(BS::All, BS::Effective, s, quint8(typemod));
+                    b.notify(BS::All, BattleCommands::Effective, s, quint8(typemod));
                     b.inflictDamage(s, damage, doomuser, true, true);
                 }
             }
@@ -1377,7 +1386,7 @@ struct MMEmbargo : public MM
     static void daf(int s, int t, BS &b) {
         if (b.ability(t) == Ability::Multitype)
             turn(b,s)["Failed"] = true;
-        else if (poke(b,s).contains("Embargoed")) {
+        else if (poke(b,t).contains("EmbargoEnd") && poke(b,t)["EmbargoEnd"].toInt() >= b.turn()) {
             turn(b,s)["Failed"] = true;
         }
     }

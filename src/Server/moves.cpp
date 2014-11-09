@@ -420,7 +420,10 @@ struct MMLeechSeed : public MM
         if (b.koed(s2))
             return;
 
-        int damage = std::min(int(b.poke(s).lifePoints()), std::max(b.poke(s).totalLifePoints() / 8, 1));
+        /* In RBY and stadium 1, toxic count increases also leech seed count */
+        int numerator = b.poke(s).status() == Pokemon::Poisoned && b.poke(s).statusCount() > 0 && b.gen() == 1 ? 15-b.poke(s).statusCount() : 1;
+        int denumerator = b.gen() == 1 ? 16 : 8;
+        int damage = std::min(int(b.poke(s).lifePoints()), std::max(b.poke(s).totalLifePoints() * numerator / denumerator, 1));
 
         b.sendMoveMessage(72, 2, s, Pokemon::Grass);
         b.inflictDamage(s, damage, s, false);
@@ -1642,6 +1645,10 @@ struct MMTeamBarrier : public MM
     }
 
     static void et(int s, int, BS &b) {
+        // Barriers such as Reflect and Light Screen do not time out in gen 1
+        if (b.gen() == 1) {
+          return;
+        }
         int counts[] = {team(b,s).value("Barrier1Count").toInt(), team(b,s).value("Barrier2Count").toInt()};
 
         for (int i = 0; i < 2; i++) {
@@ -1773,8 +1780,11 @@ struct MMDefog : public MM
     static void uas (int s, int t, BS &b) {
         bool clear = false;
 
-
         BS::context &c = team(b,b.player(t));
+
+        if (!b.hasMinimalStatMod(t, Evasion)) {
+            b.inflictStatMod(t, Evasion, -1, s);
+        }
 
         if (c.contains("Barrier1Count") || c.contains("Barrier2Count") || c.contains("Spikes") || c.contains("ToxicSpikes")
                 || c.contains("StealthRock") || c.contains("MistCount") || c.contains("SafeGuardCount")) {

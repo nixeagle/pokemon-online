@@ -9,15 +9,13 @@
 #include "../Utilities/otherwidgets.h"
 #include "tierstruct.h"
 #include "password_wallet.h"
-#ifdef PO_PMS_YOU_START_ONLY
 #include <ctime>
-#endif
 
 class MainEngine;
 class BaseChallengeWindow;
 class QIdTreeWidgetItem;
 class BattleWindow;
-class BaseBattleWindow;
+class BaseBattleWindowInterface;
 class QScrollDownTextBrowser;
 class PMWindow;
 class ControlPanel;
@@ -88,6 +86,7 @@ public:
 
     void removePlayer(int id);
     void removeBattleWindow(int id);
+    void disableBattleWindow(int id);
 
     QList<QIcon> statusIcons;
     QIcon chatot, greychatot;
@@ -109,8 +108,10 @@ public:
     int showPEvents;
     bool sortBT;
     bool sortBA;
+    bool sortCBN;
     bool showTS;
     bool pmFlashing;
+    bool pmDisabled;
     TierNode tierRoot;
     QStringList tierList;
 public slots:
@@ -143,6 +144,8 @@ public slots:
     /* Channels list */
     void channelCommandReceived(int command, int channel, QDataStream *stream);
     void channelsListReceived(const QHash<qint32, QString> &channels);
+    void sortChannels();
+    void sortChannelsToggle(bool enabled);
     void channelPlayers(int chanid, const QVector<qint32> &ids = QVector<qint32>());
     void addChannel(const QString &name, int id);
     void channelNameChanged(int id, const QString &name);
@@ -206,6 +209,7 @@ public slots:
         goAway(away);
     }
     void changeButtonStyle(bool old);
+    void changeBattleWindow(bool old);
     void changeNicknames(bool old);
     void showTeam(bool);
     void enableLadder(bool);
@@ -225,6 +229,7 @@ public slots:
     void showTimeStamps(bool);
     void showTimeStamps2(bool);
     void pmFlash(bool);
+    void togglePM(bool);
     void movePlayerList(bool);
     void ignoreServerVersion(bool);
     void versionDiff(const QString &a, const QString &b);
@@ -248,6 +253,7 @@ signals:
     void done();
     void userInfoReceived(const UserInfo &ui);
     void tierListFormed(const QStringList &tiers);
+    void PMDisabled(bool b);
 protected:
     void paintEvent(QPaintEvent *)
     {
@@ -296,11 +302,14 @@ private:
     /* Challenge windows , to emit or to receive*/
     QSet<BaseChallengeWindow *> mychallenges;
     QPointer<BattleFinder> myBattleFinder;
-    QHash<int, BaseBattleWindow* > mySpectatingBattles;
+    QHash<int, BaseBattleWindowInterface* > mySpectatingBattles;
     QHash<int, BattleWindow* > mybattles;
     QAction *goaway;
 
     bool findingBattle;
+    bool isConnected;
+    QString url;
+    quint16 port;
     int _mid;
     int selectedChannel;
 
@@ -346,9 +355,7 @@ private:
     void changeTierChecked(const QString &newtier);
 
     bool eventEnabled(int event);
-#ifdef PO_PMS_YOU_START_ONLY
     time_t lastAutoPM;
-#endif
 };
 
 class BattleFinder : public QWidget

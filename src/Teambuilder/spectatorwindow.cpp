@@ -6,37 +6,80 @@
 #include "../BattleManager/battledata.h"
 #include "../BattleManager/battleinput.h"
 #include "../BattleManager/battlescene.h"
+#include "../BattleManager/regularbattlescene.h"
 #include "../BattleManager/battledatatypes.h"
 #include "poketextedit.h"
 #include "theme.h"
+#include "../PokemonInfo/networkstructs.h"
 
-SpectatorWindow::SpectatorWindow(BattleConfiguration &conf, QString name1, QString name2)
+int SpectatorWindow::qmlcount = 0;
+
+SpectatorWindow::SpectatorWindow(const FullBattleConfiguration &conf)
 {
+    qmlwindow = false;
     data = new battledata_basic(&conf);
     data2 = new advbattledata_proxy(&conf);
 
-    data->team(0).name() = data2->team(0).name() = name1;
-    data->team(1).name() = data2->team(1).name() = name2;
+    data->team(0).name() = conf.getName(0);
+    data->team(1).name() = conf.getName(1);
+    data2->team(0).setName(conf.getName(0));
+    data2->team(1).setName(conf.getName(1));
 
-    log = new BattleClientLog(data, Theme::getBattleTheme());
+    QSettings s;
+    bool usePokemonNames = s.value("use_pokemon_names").toBool();
+
+    log = new BattleClientLog(data, Theme::getBattleTheme(), usePokemonNames);
     input = new BattleInput(&conf);
-    scene = new BattleScene(data2);
-
-    input->addOutput(scene);
-    scene->addOutput(data);
-    scene->addOutput(log);
-    scene->addOutput(data2);
 
     logWidget = new PokeTextEdit();
-
     connect(log, SIGNAL(lineToBePrinted(QString)), logWidget, SLOT(insertHtml(QString)));
-    connect(scene, SIGNAL(printMessage(QString)), logWidget, SLOT(insertPlainText(QString)));
 
-    scene->launch();
+    /* All the previous message which didn't get a chance to be emitted */
+    log->emitAll();
 
-    foreach(QDeclarativeError error, scene->getWidget()->errors()) {
-        log->printLine(error.toString());
+    bool qml = !(s.value("old_battle_window", true).toBool() || conf.mode != ChallengeInfo::Singles || qmlcount > 0);
+
+    if (qml) {
+        BattleScene *scene = new BattleScene(data2);
+
+        input->addOutput(scene);
+        scene->addOutput(data);
+        scene->addOutput(log);
+        scene->addOutput(data2);
+
+        connect(scene, SIGNAL(printMessage(QString)), logWidget, SLOT(insertPlainText(QString)));
+
+        scene->launch();
+
+        foreach(QDeclarativeError error, scene->getWidget()->errors()) {
+            log->printLine("Error", error.toString());
+        }
+
+        battleView = scene->getWidget();
+
+        qmlcount ++;
+        qmlwindow = true;
+
+        lastOutput = scene;
+    } else {
+        RegularBattleScene *battle = new RegularBattleScene(data2, Theme::getBattleTheme(), usePokemonNames);
+
+        input->addOutput(data);
+        input->addOutput(log);
+        input->addOutput(data2);
+        input->addOutput(battle);
+        battle->deletable = false;
+
+        connect(battle, SIGNAL(printMessage(QString)), logWidget, SLOT(insertPlainText(QString)));
+
+        battleView = battle;
+        lastOutput = battle;
     }
+}
+
+FlowCommandManager<BattleEnum> * SpectatorWindow::getBattle()
+{
+    return lastOutput;
 }
 
 void SpectatorWindow::reloadTeam(int player)
@@ -45,14 +88,24 @@ void SpectatorWindow::reloadTeam(int player)
     data2->reloadTeam(player);
 }
 
+BattleClientLog* SpectatorWindow::getLog()
+{
+    return log;
+}
+
+BattleInput *SpectatorWindow::getInput()
+{
+    return input;
+}
+
 PokeTextEdit *SpectatorWindow::getLogWidget()
 {
     return logWidget;
 }
 
-QDeclarativeView *SpectatorWindow::getSceneWidget()
+QWidget *SpectatorWindow::getSceneWidget()
 {
-    return scene->getWidget();
+    return battleView;
 }
 
 QWidget *SpectatorWindow::getSampleWidget()
@@ -68,6 +121,10 @@ QWidget *SpectatorWindow::getSampleWidget()
 
 SpectatorWindow::~SpectatorWindow()
 {
+    if (qmlwindow) {
+        qmlcount--;
+    }
+
     input->deleteTree();
     delete input;
 }
@@ -75,4 +132,9 @@ SpectatorWindow::~SpectatorWindow()
 void SpectatorWindow::receiveData(const QByteArray &data)
 {
     input->receiveData(data);
+}
+
+advbattledata_proxy *SpectatorWindow::getBattleData()
+{
+    return data2;
 }

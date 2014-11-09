@@ -8,6 +8,8 @@
 #include "pluginmanager.h"
 #include "plugininterface.h"
 #include "theme.h"
+#include "logmanager.h"
+#include "replayviewer.h"
 #include "../Utilities/functions.h"
 
 MainEngine::MainEngine() : displayer(0)
@@ -20,7 +22,7 @@ MainEngine::MainEngine() : displayer(0)
     QSettings s;
     /* initializing the default init values if not there */
     setDefaultValue(s, "application_style", "plastique");
-    setDefaultValue(s, "theme_2", "Themes/Dratini Dreams/");
+    setDefaultValue(s, "theme_2", "Themes/Balanced/");
 
 #ifdef Q_OS_MACX
     setDefaultValue(s, "team_location", QDir::homePath() + "/Documents/trainer.tp");
@@ -30,6 +32,7 @@ MainEngine::MainEngine() : displayer(0)
     setDefaultValue(s, "battle_music_directory", "Music/Battle/");
     setDefaultValue(s, "play_battle_music", false);
     setDefaultValue(s, "play_battle_sounds", false);
+    setDefaultValue(s, "flash_when_enemy_moves", true);
     setDefaultValue(s, "show_team", true);
     setDefaultValue(s, "enable_ladder", true);
     setDefaultValue(s, "show_player_events_idle", false);
@@ -39,8 +42,10 @@ MainEngine::MainEngine() : displayer(0)
     setDefaultValue(s, "show_timestamps", true);
     setDefaultValue(s, "show_timestamps2", true);
     setDefaultValue(s, "pm_flashing", true);
+    setDefaultValue(s, "pm_disabled", false);
     setDefaultValue(s, "animate_hp_bar", true);
     setDefaultValue(s, "sort_players_by_tier", false);
+    setDefaultValue(s, "sort_channels_by_name", false);
     setDefaultValue(s, "show_all_items", false);
 
     setDefaultValue(s, "find_battle_force_rated", false);
@@ -146,6 +151,11 @@ void MainEngine::openPluginConfiguration()
             w->show();
         }
     }
+}
+
+ThemeAccessor *MainEngine::theme()
+{
+    return Theme::getAccessor();
 }
 
 void MainEngine::loadStyleSheet()
@@ -320,6 +330,23 @@ void MainEngine::loadTeam(const QString &path)
 void MainEngine::loadTeamDialog()
 {
     loadTTeamDialog(*trainerTeam());
+}
+
+void MainEngine::loadReplayDialog()
+{
+    QFileDialog *f = new QFileDialog(NULL, QObject::tr("Replay a battle"), LogManager::obj()->getDirectoryForType(ReplayLog), "*.poreplay");
+    f->setWindowFlags(Qt::Window);
+    f->setAttribute(Qt::WA_DeleteOnClose);
+    f->setAcceptMode(QFileDialog::AcceptOpen);
+    f->setFileMode(QFileDialog::ExistingFile);
+    f->show();
+
+    connect(f, SIGNAL(fileSelected(QString)), SLOT(showReplay(QString)));
+}
+
+void MainEngine::showReplay(QString file)
+{
+    new ReplayViewer(file);
 }
 
 void MainEngine::addStyleMenu(QMenuBar *menuBar)

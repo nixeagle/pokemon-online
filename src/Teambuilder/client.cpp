@@ -14,15 +14,14 @@
 #include "channel.h"
 #include "theme.h"
 
-Client::Client(TrainerTeam *t, const QString &url , const quint16 port) : myteam(t), findingBattle(false), myrelay()
+Client::Client(TrainerTeam *t, const QString &url , const quint16 port) : myteam(t), findingBattle(false), url(url), port(port), myrelay()
 {
+    isConnected = true;
     _mid = -1;
     selectedChannel = -1;
     setAttribute(Qt::WA_DeleteOnClose, true);
     myteambuilder = NULL;
-#ifdef PO_PMS_YOU_START_ONLY
     lastAutoPM = time(NULL);
-#endif
 
     /* different events */
     eventlist << "show_player_events_idle" << "show_player_events_battle" << "show_player_events_channel" << "show_player_events_team";
@@ -139,6 +138,17 @@ Client::Client(TrainerTeam *t, const QString &url , const quint16 port) : myteam
      */
     if (settings.value("user_list_at_right").toBool()) {
         s->addWidget(mytab);
+    }
+    if(settings.value("sort_channels_by_name").toBool()) {
+        sortCBN = 1;
+    } else {
+        sortCBN = 0;
+    }
+    pmFlashing = settings.value("pm_flashing").toBool();
+    if(settings.value("pm_disabled").toBool()) {
+        pmDisabled = 1;
+    } else {
+        pmDisabled = 0;
     }
 }
 
@@ -274,6 +284,24 @@ void Client::channelsListReceived(const QHash<qint32, QString> &channelsL)
         else
             channels->addItem(new QIdListWidgetItem(it.key(), greychatot, it.value()));
     }
+    if(sortCBN) {
+        sortChannels();
+    }
+}
+
+void Client::sortChannelsToggle(bool newvalue)
+{
+    QSettings s;
+    s.setValue("sort_channels_by_name", newvalue);
+
+    sortCBN = newvalue;
+    if(sortCBN) {
+        sortChannels();
+    }
+}
+
+void Client::sortChannels() {
+    channels->sortItems();
 }
 
 void Client::channelPlayers(int chanid, const QVector<qint32> &ids)
@@ -646,20 +674,21 @@ void Client::startPM(int id)
         return;
     }
 
-    if(pmFlashing)
+    if(pmFlashing && !pmDisabled)
         activateWindow(); // activate po window when pm recieved
 
     if (mypms.contains(id)) {
         return;
     }
 
-    PMWindow *p = new PMWindow(id, ownName(), name(id), "", auth(id) >= 4);
+    PMWindow *p = new PMWindow(id, ownName(), name(id), "", auth(id) >= 4, pmDisabled);
     p->setParent(this);
     p->setWindowFlags(Qt::Window);
     p->show();
 
     connect(p, SIGNAL(challengeSent(int)), this, SLOT(seeInfo(int)));
     connect(p, SIGNAL(messageEntered(int,QString)), &relay(), SLOT(sendPM(int,QString)));
+    connect(this, SIGNAL(PMDisabled(bool)), p, SLOT(disablePM(bool)));
     connect(p, SIGNAL(messageEntered(int,QString)), this, SLOT(registerPermPlayer(int)));
     connect(p, SIGNAL(destroyed(int)), this, SLOT(removePM(int)));
     connect(p, SIGNAL(ignore(int,bool)), this, SLOT(ignore(int, bool)));
@@ -697,12 +726,22 @@ void Client::showTimeStamps2(bool b)
     QSettings s;
     s.setValue("show_timestamps2", b);
 }
+
 void Client::pmFlash(bool b)
 {
     QSettings s;
     s.setValue("pm_flashing", b);
     pmFlashing = b;
 }
+
+void Client::togglePM(bool b)
+{
+    QSettings s;
+    s.setValue("pm_disabled", b);
+    pmDisabled = b;
+    emit PMDisabled(b);
+}
+
 
 void Client::ignoreServerVersion(bool b)
 {
@@ -944,31 +983,38 @@ void Client::setPlayer(const UserInfo &ui)
 
 void Client::PMReceived(int id, QString pm)
 {
-#ifdef PO_PMS_YOU_START_ONLY
+    time_t current = time(NULL);
+    double difference = difftime(lastAutoPM, current);
     if (mypms.contains(id)) {
+        if(pmDisabled) { // We're avoiding that people that was actually chatting with the user continue talking avoiding the Disable PM =-)
+            if((difference > 6) || (difference < -6)) {
+                myrelay.sendPM(id, "This player is currently ignoring all private messages.");
+                lastAutoPM = current;
+            }
+            return;
+        }
         registerPermPlayer(id);
         mypms[id]->printLine(pm);
     } else {
-        time_t current = time(NULL);
-        double difference = difftime(lastAutoPM, current);
-        if ((difference > 6) || (difference < -6)) {
-            myrelay.sendPM(id, "This player cannot receive PMs."); // no translation needed
-            lastAutoPM = current;
+        if(pmDisabled) {
+            if ((difference > 6) || (difference < -6)) {
+                myrelay.sendPM(id, "This player is currently ignoring all private messages.");
+                lastAutoPM = current;
+            }
+            return;
+        } else {
+            if (!playerExist(id) || myIgnored.contains(id)) {
+                return;
+            }
+            if (!mypms.contains(id)) {
+                startPM(id);
+            }
+            registerPermPlayer(id);
+            mypms[id]->printLine(pm);
         }
-        return;
     }
-#else
-    if (!playerExist(id) || myIgnored.contains(id)) {
-        return;
-    }
-    if (!mypms.contains(id)) {
-        startPM(id);
-    }
-
-    registerPermPlayer(id);
-    mypms[id]->printLine(pm);
-#endif
 }
+
 
 void Client::removePM(int id)
 {
@@ -1031,6 +1077,7 @@ QMenuBar * Client::createMenuBar(MainEngine *w)
     QMenu *menuFichier = menuBar->addMenu(tr("&File"));
     menuFichier->addAction(tr("&Load team"),this,SLOT(loadTeam()),Qt::CTRL+Qt::Key_L);
     menuFichier->addAction(tr("Open &TeamBuilder"),this,SLOT(openTeamBuilder()),Qt::CTRL+Qt::Key_T);
+    menuFichier->addAction(tr("Open &replay"),w,SLOT(loadReplayDialog()), Qt::CTRL+Qt::Key_R);
 
     w->addStyleMenu(menuBar);
     w->addThemeMenu(menuBar);
@@ -1115,27 +1162,42 @@ QMenuBar * Client::createMenuBar(MainEngine *w)
     show_ts->setChecked(s.value("show_timestamps").toBool());
     showTS = show_ts->isChecked();
 
-    QAction * show_ts2 = menuActions->addAction(tr("Enable timestamps in &PMs"));
+    QMenu * pmMenu = menuActions->addMenu(tr("&PM options"));
+
+    QAction * show_ts2 = pmMenu->addAction(tr("Enable timestamps in &PMs"));
     show_ts2->setCheckable(true);
     connect(show_ts2, SIGNAL(triggered(bool)), SLOT(showTimeStamps2(bool)));
     show_ts2->setChecked(s.value("show_timestamps2").toBool());
 
-    QAction * pm_flash = menuActions->addAction(tr("Make new PMs &flash"));
+    QAction * pm_flash = pmMenu->addAction(tr("Make new PMs &flash"));
     pm_flash->setCheckable(true);
     connect(pm_flash, SIGNAL(triggered(bool)), SLOT(pmFlash(bool)));
     pm_flash->setChecked(s.value("pm_flashing").toBool());
 
-    QAction *sortByTier = menuActions->addAction(tr("Sort players by &tiers"));
+    QAction * pm_disable = pmMenu->addAction(tr("Disable PMs"));
+    pm_disable->setCheckable(true);
+    connect(pm_disable, SIGNAL(triggered(bool)), SLOT(togglePM(bool)));
+    pm_disable->setChecked(s.value("pm_disabled").toBool());
+
+    QMenu * sortMenu = menuActions->addMenu(tr("&Sort players"));
+
+    QAction *sortByTier = sortMenu->addAction(tr("Sort players by &tiers"));
     sortByTier->setCheckable(true);
     connect(sortByTier, SIGNAL(triggered(bool)), SLOT(sortPlayersCountingTiers(bool)));
     sortByTier->setChecked(s.value("sort_players_by_tier").toBool());
     sortBT = sortByTier->isChecked();
 
-    QAction *sortByAuth = menuActions->addAction(tr("Sort players by auth &level"));
+    QAction *sortByAuth = sortMenu->addAction(tr("Sort players by auth &level"));
     sortByAuth->setCheckable(true);
     connect(sortByAuth, SIGNAL(triggered(bool)), SLOT(sortPlayersByAuth(bool)));
     sortByAuth->setChecked(s.value("sort_players_by_auth").toBool());
     sortBA = sortByAuth->isChecked();
+
+    QAction *sortChannelsName = menuActions->addAction(tr("Sort channels by name"));
+    sortChannelsName->setCheckable(true);
+    sortChannelsName->setChecked(s.value("sort_channels_by_name").toBool());
+    connect(sortChannelsName, SIGNAL(triggered(bool)), SLOT(sortChannelsToggle(bool)));
+    sortCBN = sortChannelsName->isChecked();
 
     QAction *list_right = menuActions->addAction(tr("Move player list to &right"));
     list_right->setCheckable(true);
@@ -1168,6 +1230,11 @@ QMenuBar * Client::createMenuBar(MainEngine *w)
     oldStyleButtons->setCheckable(true);
     connect(oldStyleButtons, SIGNAL(triggered(bool)), SLOT(changeButtonStyle(bool)));
     oldStyleButtons->setChecked(s.value("old_attack_buttons").toBool());
+
+    QAction *oldBattleWindow = battleMenu->addAction(tr("Old battle window"));
+    oldBattleWindow->setCheckable(true);
+    connect(oldBattleWindow, SIGNAL(triggered(bool)), SLOT(changeBattleWindow(bool)));
+    oldBattleWindow->setChecked(s.value("old_battle_window", true).toBool());
 
     QAction *dontUseNicknames = battleMenu->addAction(tr("Don't show Pokemon Nicknames"));
     dontUseNicknames->setCheckable(true);
@@ -1309,8 +1376,12 @@ void Client::serverPass(const QString &salt) {
 }
 
 void Client::sendRegister() {
-    relay().notify(NetworkCli::Register);
-    myregister->setDisabled(true);
+    if (isConnected) {
+        relay().notify(NetworkCli::Register);
+        myregister->setDisabled(true);
+    } else {
+        relay().connectTo(url, port);
+    }
 }
 
 void Client::changeMusicFolder()
@@ -1325,21 +1396,26 @@ void Client::changeMusicFolder()
 
 void Client::changeBattleLogFolder()
 {
-    QSettings s;
-    QString dir = QFileDialog::getExistingDirectory(this, tr("Battle Logs Directory"),
-                                                    QDir::home().absoluteFilePath(LogManager::obj()->getDirectoryForType(BattleLog)));
+    QString dir = QFileDialog::getExistingDirectory(this, tr("Logs Directory"),
+                                                    QDir::home().absoluteFilePath(LogManager::obj()->getDirectory()));
 
     if (dir.isNull()) {
         return;
     }
 
-    LogManager::obj()->changeDirectoryForType(BattleLog, dir);
+    LogManager::obj()->changeBaseDirectory(dir);
 }
 
 void Client::changeButtonStyle(bool old)
 {
     QSettings s;
     s.setValue("old_attack_buttons",old);
+}
+
+void Client::changeBattleWindow(bool old)
+{
+    QSettings s;
+    s.setValue("old_battle_window",old);
 }
 
 void Client::changeNicknames(bool old)
@@ -1625,7 +1701,10 @@ void Client::battleReceived(int battleid, int id1, int id2)
 
 void Client::watchBattle(int battleId, const BattleConfiguration &conf)
 {
-    BaseBattleWindow *battle = new BaseBattleWindow(player(conf.ids[0]), player(conf.ids[1]), conf, ownId(), this);
+    QSettings s;
+
+    BaseBattleWindowInterface *battle = new BaseBattleWindowIns(player(conf.ids[0]), player(conf.ids[1]), conf, ownId(), this);
+
     battle->setWindowFlags(Qt::Window);
     battle->show();
 
@@ -1634,7 +1713,6 @@ void Client::watchBattle(int battleId, const BattleConfiguration &conf)
     connect(battle, SIGNAL(battleMessage(int, QString)), &relay(), SLOT(battleMessage(int, QString)));
 
     battle->battleId() = battleId;
-    battle->client() = this;
     mySpectatingBattles[battleId] = battle;
 }
 
@@ -1657,7 +1735,7 @@ void Client::battleFinished(int battleid, int res, int winner, int loser)
 {
     /* On old servers battleid is always 0 so you don't want to forfeit that battle ... */
     if ((res == Close || res == Forfeit) && (battleid != 0 || (winner == ownId() || loser == ownId())))
-        removeBattleWindow(battleid);
+        disableBattleWindow(battleid);
 
     foreach(Channel *c, mychannels) {
         c->battleEnded(battleid, res, winner, loser);
@@ -1689,6 +1767,15 @@ void Client::battleCommand(int battleid, const QByteArray &command)
         return;
 
     mybattles[battleid]->receiveInfo(command);
+}
+
+void Client::disableBattleWindow(int battleid)
+{
+    if (!mybattles.contains(battleid))
+        return;
+
+    BattleWindow *w = mybattles.take(battleid);
+    w->disable();
 }
 
 void Client::removeBattleWindow(int battleid)
@@ -1831,6 +1918,8 @@ void Client::errorFromNetwork(int errnum, const QString &errorDesc)
 void Client::connected()
 {
     printLine(tr("Connected to Server!"));
+    isConnected = true;
+    myregister->setText(tr("&Register"));
 
     QSettings s;
 
@@ -1846,6 +1935,10 @@ void Client::connected()
 void Client::disconnected()
 {
     printLine(tr("Disconnected from Server!"));
+
+    isConnected = false;
+    myregister->setText(tr("&Reconnect"));
+    myregister->setEnabled(true);
 }
 
 TrainerTeam* Client::team()
@@ -1921,14 +2014,6 @@ void Client::fadeAway()
             if (c->hasRemoteKnowledgeOf(player))
                 goto refresh;
         }
-        foreach(BattleWindow *w, mybattles){
-            if (w->hasKnowledgeOf(player))
-                goto refresh;
-        }
-        foreach(BaseBattleWindow *w, mybattles) {
-            if (w->hasKnowledgeOf(player))
-                goto refresh;
-        }
 
         fade[player] += 1;
         if (fade[player] >= 5) {
@@ -1983,7 +2068,6 @@ void Client::playerReceived(const PlayerInfo &p)
         else
             c->changeName(p.id, p.team.name); /* Even if the player isn't in the channel, someone in the channel could be battling him, ... */
     }
-    
     QHash<QString, PMWindow*>::iterator pm = disabledpms.find(name(p.id));
     if (pm != disabledpms.end()) {
         PMWindow *window = pm.value();
